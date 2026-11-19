@@ -1435,6 +1435,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      create_store_for_current_user: {
+        Args: { p_name: string }
+        Returns: string
+      }
     }
     Enums: {
       payment_method:
