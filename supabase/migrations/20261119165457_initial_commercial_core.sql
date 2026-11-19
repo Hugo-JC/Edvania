@@ -4,6 +4,8 @@
 -- The later timestamped files are no-op history markers for changes already included in this snapshot.
 -- New schema changes must be added as incremental migrations.
 
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke execute on functions from public;
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all functions in schema public from public, anon, authenticated;
 grant usage on schema public to authenticated, service_role;
@@ -1240,3 +1242,14 @@ grant UPDATE on table public.whatsapp_messages to service_role;
 
 grant execute on function public.has_store_access(uuid) to authenticated, service_role;
 grant execute on function public.has_store_role(uuid, public.store_role[]) to authenticated, service_role;
+
+
+-- Explicitly restore only the intended grants after creating functions and the aggregate view.
+revoke all on function public.set_updated_at() from public, anon, authenticated;
+revoke all on function public.has_store_access(uuid) from public, anon;
+revoke all on function public.has_store_role(uuid, public.store_role[]) from public, anon;
+grant execute on function public.has_store_access(uuid) to authenticated, service_role;
+grant execute on function public.has_store_role(uuid, public.store_role[]) to authenticated, service_role;
+revoke all on public.inventory_balances from public, anon, authenticated;
+grant select on public.inventory_balances to authenticated;
+grant all privileges on public.inventory_balances to service_role;
