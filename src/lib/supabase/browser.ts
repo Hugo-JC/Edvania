@@ -2,13 +2,12 @@
 
 import { createBrowserClient } from "@supabase/ssr";
 import type { Database } from "./database.types";
+import { getPublicEnv } from "@/lib/env";
 
 let browserClient: ReturnType<typeof createBrowserClient<Database>> | undefined;
 
 export function createClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !key) throw new Error("Supabase environment variables are missing.");
-  browserClient ??= createBrowserClient<Database>(url, key);
+  const { url, publishableKey } = getPublicEnv();
+  browserClient ??= createBrowserClient<Database>(url, publishableKey);
   return browserClient;
 }
