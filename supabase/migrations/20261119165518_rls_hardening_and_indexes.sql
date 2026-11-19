@@ -1,0 +1,2 @@
+-- Historical marker: these changes are included in the consolidated bootstrap snapshot 20261119165457.
+-- Retained to match the remote Supabase migration history. No additional SQL is required on a clean install.
