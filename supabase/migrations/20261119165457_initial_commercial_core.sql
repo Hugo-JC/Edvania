@@ -1,7 +1,7 @@
 -- Edvânia consolidated bootstrap snapshot exported from the verified Supabase schema on 2026-11-19.
 -- This clean-install baseline contains the final schema state, including RLS hardening and grants.
 -- It is not a byte-for-byte copy of the original remote migration history.
--- The later timestamped files are no-op history markers for changes already included in this snapshot.
+-- Later timestamped files are no-op history markers for changes already included in this snapshot.
 -- New schema changes must be added as incremental migrations.
 
 alter default privileges in schema public revoke all on tables from anon, authenticated;
@@ -80,13 +80,59 @@ create table public.whatsapp_messages (id uuid default gen_random_uuid() not nul
 
 alter table public.ai_usage_logs add constraint ai_usage_logs_pkey PRIMARY KEY (id);
 
-alter table public.ai_usage_logs add constraint ai_usage_logs_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE SET NULL;
-
-alter table public.angola_municipalities add constraint angola_municipalities_code_key UNIQUE (code);
-
 alter table public.angola_municipalities add constraint angola_municipalities_pkey PRIMARY KEY (id);
 
-alter table public.angola_municipalities add constraint angola_municipalities_province_id_fkey FOREIGN KEY (province_id) REFERENCES angola_provinces(id) ON DELETE RESTRICT;
+alter table public.angola_provinces add constraint angola_provinces_pkey PRIMARY KEY (id);
+
+alter table public.audit_logs add constraint audit_logs_pkey PRIMARY KEY (id);
+
+alter table public.automations add constraint automations_pkey PRIMARY KEY (id);
+
+alter table public.baileys_auth_state add constraint baileys_auth_state_pkey PRIMARY KEY (id);
+
+alter table public.cash_movements add constraint cash_movements_pkey PRIMARY KEY (id);
+
+alter table public.cash_registers add constraint cash_registers_pkey PRIMARY KEY (id);
+
+alter table public.cash_sessions add constraint cash_sessions_pkey PRIMARY KEY (id);
+
+alter table public.categories add constraint categories_pkey PRIMARY KEY (id);
+
+alter table public.customers add constraint customers_pkey PRIMARY KEY (id);
+
+alter table public.expenses add constraint expenses_pkey PRIMARY KEY (id);
+
+alter table public.inventory_locations add constraint inventory_locations_pkey PRIMARY KEY (id);
+
+alter table public.inventory_movements add constraint inventory_movements_pkey PRIMARY KEY (id);
+
+alter table public.payments add constraint payments_pkey PRIMARY KEY (id);
+
+alter table public.products add constraint products_pkey PRIMARY KEY (id);
+
+alter table public.proxypay_payments add constraint proxypay_payments_pkey PRIMARY KEY (id);
+
+alter table public.sale_items add constraint sale_items_pkey PRIMARY KEY (id);
+
+alter table public.sales add constraint sales_pkey PRIMARY KEY (id);
+
+alter table public.store_memberships add constraint store_memberships_pkey PRIMARY KEY (id);
+
+alter table public.stores add constraint stores_pkey PRIMARY KEY (id);
+
+alter table public.suppliers add constraint suppliers_pkey PRIMARY KEY (id);
+
+alter table public.user_profiles add constraint user_profiles_pkey PRIMARY KEY (id);
+
+alter table public.webhook_events add constraint webhook_events_pkey PRIMARY KEY (id);
+
+alter table public.whatsapp_connections add constraint whatsapp_connections_pkey PRIMARY KEY (id);
+
+alter table public.whatsapp_conversations add constraint whatsapp_conversations_pkey PRIMARY KEY (id);
+
+alter table public.whatsapp_messages add constraint whatsapp_messages_pkey PRIMARY KEY (id);
+
+alter table public.angola_municipalities add constraint angola_municipalities_code_key UNIQUE (code);
 
 alter table public.angola_municipalities add constraint angola_municipalities_province_id_name_key UNIQUE (province_id, name);
 
@@ -94,119 +140,69 @@ alter table public.angola_provinces add constraint angola_provinces_code_key UNI
 
 alter table public.angola_provinces add constraint angola_provinces_name_key UNIQUE (name);
 
-alter table public.angola_provinces add constraint angola_provinces_pkey PRIMARY KEY (id);
-
-alter table public.audit_logs add constraint audit_logs_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
-
-alter table public.audit_logs add constraint audit_logs_pkey PRIMARY KEY (id);
-
-alter table public.audit_logs add constraint audit_logs_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE SET NULL;
-
-alter table public.automations add constraint automations_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
-
-alter table public.automations add constraint automations_pkey PRIMARY KEY (id);
-
-alter table public.automations add constraint automations_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
 alter table public.automations add constraint automations_store_id_id_key UNIQUE (store_id, id);
-
-alter table public.baileys_auth_state add constraint baileys_auth_state_pkey PRIMARY KEY (id);
-
-alter table public.baileys_auth_state add constraint baileys_auth_state_store_id_connection_id_fkey FOREIGN KEY (store_id, connection_id) REFERENCES whatsapp_connections(store_id, id) ON DELETE CASCADE;
-
-alter table public.baileys_auth_state add constraint baileys_auth_state_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
 
 alter table public.baileys_auth_state add constraint baileys_auth_state_store_id_session_id_key_type_key_id_key UNIQUE (store_id, session_id, key_type, key_id);
 
-alter table public.cash_movements add constraint cash_movements_amount_check CHECK (amount > 0::numeric);
-
-alter table public.cash_movements add constraint cash_movements_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
-
-alter table public.cash_movements add constraint cash_movements_direction_check CHECK (direction = ANY (ARRAY['in'::text, 'out'::text]));
-
-alter table public.cash_movements add constraint cash_movements_movement_type_check CHECK (movement_type = ANY (ARRAY['sale'::text, 'payment_in'::text, 'expense'::text, 'withdrawal'::text, 'deposit'::text, 'adjustment'::text]));
-
-alter table public.cash_movements add constraint cash_movements_pkey PRIMARY KEY (id);
-
-alter table public.cash_movements add constraint cash_movements_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.cash_movements add constraint cash_movements_store_id_session_id_fkey FOREIGN KEY (store_id, session_id) REFERENCES cash_sessions(store_id, id) ON DELETE RESTRICT;
-
-alter table public.cash_registers add constraint cash_registers_pkey PRIMARY KEY (id);
-
-alter table public.cash_registers add constraint cash_registers_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
 alter table public.cash_registers add constraint cash_registers_store_id_id_key UNIQUE (store_id, id);
 
-alter table public.cash_registers add constraint cash_registers_store_id_location_id_fkey FOREIGN KEY (store_id, location_id) REFERENCES inventory_locations(store_id, id) ON DELETE RESTRICT;
-
-alter table public.cash_sessions add constraint cash_sessions_check CHECK (closed_at IS NULL AND closing_amount IS NULL OR closed_at IS NOT NULL AND closing_amount IS NOT NULL);
-
-alter table public.cash_sessions add constraint cash_sessions_closed_by_fkey FOREIGN KEY (closed_by) REFERENCES auth.users(id);
-
-alter table public.cash_sessions add constraint cash_sessions_closing_amount_check CHECK (closing_amount IS NULL OR closing_amount >= 0::numeric);
-
-alter table public.cash_sessions add constraint cash_sessions_opened_by_fkey FOREIGN KEY (opened_by) REFERENCES auth.users(id);
-
-alter table public.cash_sessions add constraint cash_sessions_opening_amount_check CHECK (opening_amount >= 0::numeric);
-
-alter table public.cash_sessions add constraint cash_sessions_pkey PRIMARY KEY (id);
-
-alter table public.cash_sessions add constraint cash_sessions_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
 alter table public.cash_sessions add constraint cash_sessions_store_id_id_key UNIQUE (store_id, id);
-
-alter table public.cash_sessions add constraint cash_sessions_store_id_register_id_fkey FOREIGN KEY (store_id, register_id) REFERENCES cash_registers(store_id, id) ON DELETE RESTRICT;
-
-alter table public.categories add constraint categories_name_check CHECK (length(TRIM(BOTH FROM name)) >= 1 AND length(TRIM(BOTH FROM name)) <= 120);
-
-alter table public.categories add constraint categories_pkey PRIMARY KEY (id);
-
-alter table public.categories add constraint categories_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
 
 alter table public.categories add constraint categories_store_id_id_key UNIQUE (store_id, id);
 
 alter table public.categories add constraint categories_store_id_name_key UNIQUE (store_id, name);
 
-alter table public.categories add constraint categories_store_id_parent_id_fkey FOREIGN KEY (store_id, parent_id) REFERENCES categories(store_id, id) ON DELETE RESTRICT;
-
-alter table public.customers add constraint customers_pkey PRIMARY KEY (id);
-
-alter table public.customers add constraint customers_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
 alter table public.customers add constraint customers_store_id_id_key UNIQUE (store_id, id);
 
-alter table public.expenses add constraint expenses_amount_check CHECK (amount > 0::numeric);
-
-alter table public.expenses add constraint expenses_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
-
-alter table public.expenses add constraint expenses_currency_code_check CHECK (currency_code = 'AOA'::bpchar);
-
-alter table public.expenses add constraint expenses_pkey PRIMARY KEY (id);
-
-alter table public.expenses add constraint expenses_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
 alter table public.expenses add constraint expenses_store_id_id_key UNIQUE (store_id, id);
-
-alter table public.inventory_locations add constraint inventory_locations_pkey PRIMARY KEY (id);
-
-alter table public.inventory_locations add constraint inventory_locations_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
 
 alter table public.inventory_locations add constraint inventory_locations_store_id_id_key UNIQUE (store_id, id);
 
 alter table public.inventory_locations add constraint inventory_locations_store_id_name_key UNIQUE (store_id, name);
 
-alter table public.inventory_movements add constraint inventory_movements_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+alter table public.payments add constraint payments_store_id_id_key UNIQUE (store_id, id);
 
-alter table public.inventory_movements add constraint inventory_movements_pkey PRIMARY KEY (id);
+alter table public.products add constraint products_store_id_id_key UNIQUE (store_id, id);
+
+alter table public.proxypay_payments add constraint proxypay_payments_proxypay_payment_id_key UNIQUE (proxypay_payment_id);
+
+alter table public.sales add constraint sales_store_id_id_key UNIQUE (store_id, id);
+
+alter table public.sales add constraint sales_store_id_sale_number_key UNIQUE (store_id, sale_number);
+
+alter table public.store_memberships add constraint store_memberships_store_id_id_key UNIQUE (store_id, id);
+
+alter table public.store_memberships add constraint store_memberships_store_id_user_id_key UNIQUE (store_id, user_id);
+
+alter table public.suppliers add constraint suppliers_store_id_id_key UNIQUE (store_id, id);
+
+alter table public.webhook_events add constraint webhook_events_source_external_event_id_key UNIQUE (source, external_event_id);
+
+alter table public.whatsapp_connections add constraint whatsapp_connections_store_id_id_key UNIQUE (store_id, id);
+
+alter table public.whatsapp_connections add constraint whatsapp_connections_store_id_key UNIQUE (store_id);
+
+alter table public.whatsapp_conversations add constraint whatsapp_conversations_store_id_id_key UNIQUE (store_id, id);
+
+alter table public.cash_movements add constraint cash_movements_amount_check CHECK (amount > 0::numeric);
+
+alter table public.cash_movements add constraint cash_movements_direction_check CHECK (direction = ANY (ARRAY['in'::text, 'out'::text]));
+
+alter table public.cash_movements add constraint cash_movements_movement_type_check CHECK (movement_type = ANY (ARRAY['sale'::text, 'payment_in'::text, 'expense'::text, 'withdrawal'::text, 'deposit'::text, 'adjustment'::text]));
+
+alter table public.cash_sessions add constraint cash_sessions_check CHECK (closed_at IS NULL AND closing_amount IS NULL OR closed_at IS NOT NULL AND closing_amount IS NOT NULL);
+
+alter table public.cash_sessions add constraint cash_sessions_closing_amount_check CHECK (closing_amount IS NULL OR closing_amount >= 0::numeric);
+
+alter table public.cash_sessions add constraint cash_sessions_opening_amount_check CHECK (opening_amount >= 0::numeric);
+
+alter table public.categories add constraint categories_name_check CHECK (length(TRIM(BOTH FROM name)) >= 1 AND length(TRIM(BOTH FROM name)) <= 120);
+
+alter table public.expenses add constraint expenses_amount_check CHECK (amount > 0::numeric);
+
+alter table public.expenses add constraint expenses_currency_code_check CHECK (currency_code = 'AOA'::bpchar);
 
 alter table public.inventory_movements add constraint inventory_movements_quantity_delta_check CHECK (quantity_delta <> 0::numeric);
-
-alter table public.inventory_movements add constraint inventory_movements_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.inventory_movements add constraint inventory_movements_store_id_location_id_fkey FOREIGN KEY (store_id, location_id) REFERENCES inventory_locations(store_id, id) ON DELETE RESTRICT;
-
-alter table public.inventory_movements add constraint inventory_movements_store_id_product_id_fkey FOREIGN KEY (store_id, product_id) REFERENCES products(store_id, id) ON DELETE RESTRICT;
 
 alter table public.inventory_movements add constraint inventory_movements_unit_cost_check CHECK (unit_cost IS NULL OR unit_cost >= 0::numeric);
 
@@ -214,29 +210,13 @@ alter table public.payments add constraint payments_amount_check CHECK (amount >
 
 alter table public.payments add constraint payments_currency_code_check CHECK (currency_code = 'AOA'::bpchar);
 
-alter table public.payments add constraint payments_pkey PRIMARY KEY (id);
-
-alter table public.payments add constraint payments_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.payments add constraint payments_store_id_id_key UNIQUE (store_id, id);
-
-alter table public.payments add constraint payments_store_id_sale_id_fkey FOREIGN KEY (store_id, sale_id) REFERENCES sales(store_id, id) ON DELETE RESTRICT;
-
 alter table public.products add constraint products_cost_price_check CHECK (cost_price >= 0::numeric);
 
 alter table public.products add constraint products_min_stock_check CHECK (min_stock >= 0::numeric);
 
 alter table public.products add constraint products_name_check CHECK (length(TRIM(BOTH FROM name)) >= 1 AND length(TRIM(BOTH FROM name)) <= 180);
 
-alter table public.products add constraint products_pkey PRIMARY KEY (id);
-
 alter table public.products add constraint products_sale_price_check CHECK (sale_price >= 0::numeric);
-
-alter table public.products add constraint products_store_id_category_id_fkey FOREIGN KEY (store_id, category_id) REFERENCES categories(store_id, id) ON DELETE RESTRICT;
-
-alter table public.products add constraint products_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.products add constraint products_store_id_id_key UNIQUE (store_id, id);
 
 alter table public.proxypay_payments add constraint proxypay_payments_amount_aoa_check CHECK (amount_aoa > 0::numeric);
 
@@ -244,49 +224,21 @@ alter table public.proxypay_payments add constraint proxypay_payments_entity_id_
 
 alter table public.proxypay_payments add constraint proxypay_payments_fee_check CHECK (fee >= 0::numeric);
 
-alter table public.proxypay_payments add constraint proxypay_payments_pkey PRIMARY KEY (id);
-
 alter table public.proxypay_payments add constraint proxypay_payments_provider_flow_check CHECK (provider_flow = ANY (ARRAY['reference_v2'::text, 'opg_v1'::text]));
 
-alter table public.proxypay_payments add constraint proxypay_payments_proxypay_payment_id_key UNIQUE (proxypay_payment_id);
-
 alter table public.proxypay_payments add constraint proxypay_payments_reference_number_check CHECK (reference_number IS NULL OR reference_number ~ '^[0-9]{9}$'::text);
-
-alter table public.proxypay_payments add constraint proxypay_payments_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.proxypay_payments add constraint proxypay_payments_store_id_payment_id_fkey FOREIGN KEY (store_id, payment_id) REFERENCES payments(store_id, id) ON DELETE RESTRICT;
 
 alter table public.sale_items add constraint sale_items_discount_amount_check CHECK (discount_amount >= 0::numeric);
 
 alter table public.sale_items add constraint sale_items_line_total_check CHECK (line_total >= 0::numeric);
 
-alter table public.sale_items add constraint sale_items_pkey PRIMARY KEY (id);
-
 alter table public.sale_items add constraint sale_items_quantity_check CHECK (quantity > 0::numeric);
-
-alter table public.sale_items add constraint sale_items_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.sale_items add constraint sale_items_store_id_product_id_fkey FOREIGN KEY (store_id, product_id) REFERENCES products(store_id, id) ON DELETE RESTRICT;
-
-alter table public.sale_items add constraint sale_items_store_id_sale_id_fkey FOREIGN KEY (store_id, sale_id) REFERENCES sales(store_id, id) ON DELETE CASCADE;
 
 alter table public.sale_items add constraint sale_items_tax_rate_check CHECK (tax_rate >= 0::numeric);
 
 alter table public.sale_items add constraint sale_items_unit_price_check CHECK (unit_price >= 0::numeric);
 
-alter table public.sales add constraint sales_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
-
 alter table public.sales add constraint sales_discount_total_check CHECK (discount_total >= 0::numeric);
-
-alter table public.sales add constraint sales_pkey PRIMARY KEY (id);
-
-alter table public.sales add constraint sales_store_id_customer_id_fkey FOREIGN KEY (store_id, customer_id) REFERENCES customers(store_id, id) ON DELETE RESTRICT;
-
-alter table public.sales add constraint sales_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.sales add constraint sales_store_id_id_key UNIQUE (store_id, id);
-
-alter table public.sales add constraint sales_store_id_sale_number_key UNIQUE (store_id, sale_number);
 
 alter table public.sales add constraint sales_subtotal_check CHECK (subtotal >= 0::numeric);
 
@@ -294,71 +246,119 @@ alter table public.sales add constraint sales_tax_total_check CHECK (tax_total >
 
 alter table public.sales add constraint sales_total_check CHECK (total >= 0::numeric);
 
-alter table public.store_memberships add constraint store_memberships_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES auth.users(id) ON DELETE SET NULL;
-
-alter table public.store_memberships add constraint store_memberships_pkey PRIMARY KEY (id);
-
-alter table public.store_memberships add constraint store_memberships_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.store_memberships add constraint store_memberships_store_id_id_key UNIQUE (store_id, id);
-
-alter table public.store_memberships add constraint store_memberships_store_id_user_id_key UNIQUE (store_id, user_id);
-
-alter table public.store_memberships add constraint store_memberships_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-
-alter table public.stores add constraint stores_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
-
 alter table public.stores add constraint stores_currency_code_check CHECK (currency_code = 'AOA'::bpchar);
-
-alter table public.stores add constraint stores_municipality_fk FOREIGN KEY (municipality_id) REFERENCES angola_municipalities(id) ON DELETE SET NULL;
 
 alter table public.stores add constraint stores_name_check CHECK (length(TRIM(BOTH FROM name)) >= 2 AND length(TRIM(BOTH FROM name)) <= 160);
 
-alter table public.stores add constraint stores_pkey PRIMARY KEY (id);
-
-alter table public.stores add constraint stores_province_fk FOREIGN KEY (province_id) REFERENCES angola_provinces(id) ON DELETE SET NULL;
-
-alter table public.suppliers add constraint suppliers_pkey PRIMARY KEY (id);
-
-alter table public.suppliers add constraint suppliers_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.suppliers add constraint suppliers_store_id_id_key UNIQUE (store_id, id);
-
-alter table public.user_profiles add constraint user_profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
-
-alter table public.user_profiles add constraint user_profiles_pkey PRIMARY KEY (id);
-
 alter table public.webhook_events add constraint webhook_events_attempts_check CHECK (attempts >= 0);
-
-alter table public.webhook_events add constraint webhook_events_pkey PRIMARY KEY (id);
-
-alter table public.webhook_events add constraint webhook_events_source_external_event_id_key UNIQUE (source, external_event_id);
 
 alter table public.webhook_events add constraint webhook_events_status_check CHECK (status = ANY (ARRAY['received'::text, 'processing'::text, 'processed'::text, 'failed'::text, 'ignored'::text]));
 
 alter table public.whatsapp_connections add constraint whatsapp_connections_connection_status_check CHECK (connection_status = ANY (ARRAY['disconnected'::text, 'connecting'::text, 'qr_pending'::text, 'connected'::text, 'logged_out'::text, 'error'::text]));
 
-alter table public.whatsapp_connections add constraint whatsapp_connections_pkey PRIMARY KEY (id);
-
 alter table public.whatsapp_connections add constraint whatsapp_connections_provider_check CHECK (provider = ANY (ARRAY['baileys'::text, 'cloud_api'::text]));
 
+alter table public.whatsapp_messages add constraint whatsapp_messages_direction_check CHECK (direction = ANY (ARRAY['inbound'::text, 'outbound'::text]));
+
+alter table public.ai_usage_logs add constraint ai_usage_logs_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE SET NULL;
+
+alter table public.angola_municipalities add constraint angola_municipalities_province_id_fkey FOREIGN KEY (province_id) REFERENCES angola_provinces(id) ON DELETE RESTRICT;
+
+alter table public.audit_logs add constraint audit_logs_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+alter table public.audit_logs add constraint audit_logs_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE SET NULL;
+
+alter table public.automations add constraint automations_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+alter table public.automations add constraint automations_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.baileys_auth_state add constraint baileys_auth_state_store_id_connection_id_fkey FOREIGN KEY (store_id, connection_id) REFERENCES whatsapp_connections(store_id, id) ON DELETE CASCADE;
+
+alter table public.baileys_auth_state add constraint baileys_auth_state_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.cash_movements add constraint cash_movements_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+alter table public.cash_movements add constraint cash_movements_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.cash_movements add constraint cash_movements_store_id_session_id_fkey FOREIGN KEY (store_id, session_id) REFERENCES cash_sessions(store_id, id) ON DELETE RESTRICT;
+
+alter table public.cash_registers add constraint cash_registers_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.cash_registers add constraint cash_registers_store_id_location_id_fkey FOREIGN KEY (store_id, location_id) REFERENCES inventory_locations(store_id, id) ON DELETE RESTRICT;
+
+alter table public.cash_sessions add constraint cash_sessions_closed_by_fkey FOREIGN KEY (closed_by) REFERENCES auth.users(id);
+
+alter table public.cash_sessions add constraint cash_sessions_opened_by_fkey FOREIGN KEY (opened_by) REFERENCES auth.users(id);
+
+alter table public.cash_sessions add constraint cash_sessions_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.cash_sessions add constraint cash_sessions_store_id_register_id_fkey FOREIGN KEY (store_id, register_id) REFERENCES cash_registers(store_id, id) ON DELETE RESTRICT;
+
+alter table public.categories add constraint categories_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.categories add constraint categories_store_id_parent_id_fkey FOREIGN KEY (store_id, parent_id) REFERENCES categories(store_id, id) ON DELETE RESTRICT;
+
+alter table public.customers add constraint customers_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.expenses add constraint expenses_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+alter table public.expenses add constraint expenses_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.inventory_locations add constraint inventory_locations_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.inventory_movements add constraint inventory_movements_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+alter table public.inventory_movements add constraint inventory_movements_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.inventory_movements add constraint inventory_movements_store_id_location_id_fkey FOREIGN KEY (store_id, location_id) REFERENCES inventory_locations(store_id, id) ON DELETE RESTRICT;
+
+alter table public.inventory_movements add constraint inventory_movements_store_id_product_id_fkey FOREIGN KEY (store_id, product_id) REFERENCES products(store_id, id) ON DELETE RESTRICT;
+
+alter table public.payments add constraint payments_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.payments add constraint payments_store_id_sale_id_fkey FOREIGN KEY (store_id, sale_id) REFERENCES sales(store_id, id) ON DELETE RESTRICT;
+
+alter table public.products add constraint products_store_id_category_id_fkey FOREIGN KEY (store_id, category_id) REFERENCES categories(store_id, id) ON DELETE RESTRICT;
+
+alter table public.products add constraint products_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.proxypay_payments add constraint proxypay_payments_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.proxypay_payments add constraint proxypay_payments_store_id_payment_id_fkey FOREIGN KEY (store_id, payment_id) REFERENCES payments(store_id, id) ON DELETE RESTRICT;
+
+alter table public.sale_items add constraint sale_items_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.sale_items add constraint sale_items_store_id_product_id_fkey FOREIGN KEY (store_id, product_id) REFERENCES products(store_id, id) ON DELETE RESTRICT;
+
+alter table public.sale_items add constraint sale_items_store_id_sale_id_fkey FOREIGN KEY (store_id, sale_id) REFERENCES sales(store_id, id) ON DELETE CASCADE;
+
+alter table public.sales add constraint sales_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+alter table public.sales add constraint sales_store_id_customer_id_fkey FOREIGN KEY (store_id, customer_id) REFERENCES customers(store_id, id) ON DELETE RESTRICT;
+
+alter table public.sales add constraint sales_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.store_memberships add constraint store_memberships_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+alter table public.store_memberships add constraint store_memberships_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.store_memberships add constraint store_memberships_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+alter table public.stores add constraint stores_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
+
+alter table public.stores add constraint stores_municipality_fk FOREIGN KEY (municipality_id) REFERENCES angola_municipalities(id) ON DELETE SET NULL;
+
+alter table public.stores add constraint stores_province_fk FOREIGN KEY (province_id) REFERENCES angola_provinces(id) ON DELETE SET NULL;
+
+alter table public.suppliers add constraint suppliers_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
+
+alter table public.user_profiles add constraint user_profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
 alter table public.whatsapp_connections add constraint whatsapp_connections_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.whatsapp_connections add constraint whatsapp_connections_store_id_id_key UNIQUE (store_id, id);
-
-alter table public.whatsapp_connections add constraint whatsapp_connections_store_id_key UNIQUE (store_id);
-
-alter table public.whatsapp_conversations add constraint whatsapp_conversations_pkey PRIMARY KEY (id);
 
 alter table public.whatsapp_conversations add constraint whatsapp_conversations_store_id_customer_id_fkey FOREIGN KEY (store_id, customer_id) REFERENCES customers(store_id, id) ON DELETE RESTRICT;
 
 alter table public.whatsapp_conversations add constraint whatsapp_conversations_store_id_fkey FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE;
-
-alter table public.whatsapp_conversations add constraint whatsapp_conversations_store_id_id_key UNIQUE (store_id, id);
-
-alter table public.whatsapp_messages add constraint whatsapp_messages_direction_check CHECK (direction = ANY (ARRAY['inbound'::text, 'outbound'::text]));
-
-alter table public.whatsapp_messages add constraint whatsapp_messages_pkey PRIMARY KEY (id);
 
 alter table public.whatsapp_messages add constraint whatsapp_messages_store_id_conversation_id_fkey FOREIGN KEY (store_id, conversation_id) REFERENCES whatsapp_conversations(store_id, id) ON DELETE CASCADE;
 
@@ -1239,12 +1239,7 @@ grant TRIGGER on table public.whatsapp_messages to service_role;
 grant TRUNCATE on table public.whatsapp_messages to service_role;
 
 grant UPDATE on table public.whatsapp_messages to service_role;
-
-grant execute on function public.has_store_access(uuid) to authenticated, service_role;
-grant execute on function public.has_store_role(uuid, public.store_role[]) to authenticated, service_role;
-
-
--- Explicitly restore only the intended grants after creating functions and the aggregate view.
+-- Least-privilege function and view grants.
 revoke all on function public.set_updated_at() from public, anon, authenticated;
 revoke all on function public.has_store_access(uuid) from public, anon;
 revoke all on function public.has_store_role(uuid, public.store_role[]) from public, anon;
