@@ -22,7 +22,7 @@ Assistente comercial para comerciantes em Angola. A plataforma terá um painel W
 
 Requisitos: Node.js 22 LTS e npm.
 
-1. Instalar dependências: `npm install`
+1. Instalar dependências: `npm install` (gera `package-lock.json`; deve ser versionado no Git após a primeira instalação).
 2. Copiar `.env.example` para `.env.local`.
 3. Preencher `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` com os valores do projecto Supabase.
 4. Executar `npm run dev`.
