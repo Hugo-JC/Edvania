@@ -14,7 +14,7 @@ Assistente comercial para comerciantes em Angola. A plataforma terá um painel W
 - Fundação Next.js/TypeScript criada.
 - Base de dados Supabase provisionada no projecto `Edivânia` (`eu-west-1`).
 - 27 tabelas, uma vista de saldos de stock e políticas RLS.
-- Migrações remotas aplicadas: `initial_commercial_core`, `rls_hardening_and_indexes`, `membership_role_hardening` e `public_view_grants_hardening`.
+- Migrações remotas aplicadas: `initial_commercial_core`, `rls_hardening_and_indexes`, `membership_role_hardening`, `public_view_grants_hardening` e `inventory_view_privilege_lockdown`.
 - Tipos TypeScript gerados a partir do schema remoto em `src/lib/supabase/database.types.ts`.
 - Nenhuma chave secreta é guardada neste repositório.
 
@@ -61,4 +61,4 @@ Perfis e lojas; membros e papéis; províncias/municípios; categorias e produto
 
 ## Nota sobre migrações
 
-As migrações remotas estão registadas no Supabase. A integração utilizada nesta sessão confirmou os nomes e versões, mas não disponibilizou o conteúdo SQL original. O repositório documenta esse facto em `supabase/migrations/README.md`; antes de criar um segundo ambiente, exportar o schema remoto para migrações SQL versionadas. Não se deve inventar um ficheiro de migração que possa divergir da base de dados.
+As migrações remotas estão registadas no Supabase. A integração utilizada nesta sessão confirmou os nomes e versões, mas não disponibilizou o conteúdo SQL original. O repositório inclui um snapshot SQL consolidado para instalações limpas e marcadores para preservar as versões remotas. O snapshot reflecte o estado final verificado, não o texto histórico exacto da primeira migração.
