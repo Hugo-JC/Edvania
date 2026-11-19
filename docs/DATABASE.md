@@ -42,5 +42,6 @@ O projecto Supabase `Edivânia` tem as migrações registadas:
 - `20261119165518_rls_hardening_and_indexes`
 - `20261119165651_membership_role_hardening`
 - `20261119165703_public_view_grants_hardening`
+- `20261119165840_inventory_view_privilege_lockdown`
 
-A integração Supabase confirmou a aplicação e os advisors. O corpo SQL das migrações remotas não foi disponibilizado pela integração; não foi inventado um ficheiro SQL divergente. Antes de abrir um segundo ambiente, exportar o schema remoto para migrações locais e verificar a correspondência dos históricos.
+O ficheiro `20261119165457_initial_commercial_core.sql` é um snapshot consolidado do estado final exportado do banco remoto, preparado para bootstrap de uma instalação limpa. Os ficheiros seguintes são marcadores sem DDL adicional para preservar a sequência histórica já aplicada no projecto remoto. O snapshot não é uma reprodução byte-a-byte do SQL histórico inicial; antes de aplicar num segundo projecto, validar o bootstrap num ambiente de desenvolvimento isolado.
