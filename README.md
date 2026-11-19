@@ -5,7 +5,7 @@ Assistente comercial para comerciantes em Angola. A plataforma terá um painel W
 ## Stack inicial
 
 - Next.js 16.4.6 (App Router) + React 19.3.1
-- TypeScript
+- TypeScript 5.9
 - Supabase: PostgreSQL 17, Auth e RLS
 - Zod para validação de configuração e payloads
 
@@ -13,13 +13,14 @@ Assistente comercial para comerciantes em Angola. A plataforma terá um painel W
 
 - Fundação Next.js/TypeScript criada.
 - Base de dados Supabase provisionada no projecto `Edivânia` (`eu-west-1`).
-- Migrações remotas aplicadas: `initial_commercial_core` e `rls_hardening_and_indexes`.
+- 27 tabelas, uma vista de saldos de stock e políticas RLS.
+- Migrações remotas aplicadas: `initial_commercial_core`, `rls_hardening_and_indexes`, `membership_role_hardening` e `public_view_grants_hardening`.
 - Tipos TypeScript gerados a partir do schema remoto em `src/lib/supabase/database.types.ts`.
 - Nenhuma chave secreta é guardada neste repositório.
 
 ## Começar localmente
 
-Requisitos: Node.js 22 LTS (ou versão compatível com Next.js 16) e npm.
+Requisitos: Node.js 22 LTS e npm.
 
 1. Instalar dependências: `npm install`
 2. Copiar `.env.example` para `.env.local`.
@@ -60,4 +61,4 @@ Perfis e lojas; membros e papéis; províncias/municípios; categorias e produto
 
 ## Nota sobre migrações
 
-As duas migrações foram aplicadas ao projecto remoto através da integração Supabase. A história remota está registada no Supabase. Antes de qualquer novo ambiente ou deploy, deve ser criada/extraída a cópia SQL versionada dessas migrações para `supabase/migrations`; não se deve recriar manualmente o schema nem aplicar DDL directamente em produção.
+As migrações remotas estão registadas no Supabase. A integração utilizada nesta sessão confirmou os nomes e versões, mas não disponibilizou o conteúdo SQL original. O repositório documenta esse facto em `supabase/migrations/README.md`; antes de criar um segundo ambiente, exportar o schema remoto para migrações SQL versionadas. Não se deve inventar um ficheiro de migração que possa divergir da base de dados.
