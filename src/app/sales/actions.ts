@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 
 const schema = z.object({
   storeId: z.string().uuid(),
+  idempotencyKey: z.string().uuid(),
   paymentMethod: z.enum(["cash", "bank_transfer", "multicaixa_reference", "multicaixa_express", "other"]),
   paidAmount: z.coerce.number().finite().min(0),
   customerId: z.union([z.literal(""), z.string().uuid()]).optional(),
@@ -15,6 +16,7 @@ const schema = z.object({
 export async function createSale(formData: FormData) {
   const parsed = schema.safeParse({
     storeId: formData.get("storeId"),
+    idempotencyKey: formData.get("idempotencyKey"),
     paymentMethod: formData.get("paymentMethod"),
     paidAmount: formData.get("paidAmount"),
     customerId: formData.get("customerId") ?? "",
@@ -47,6 +49,7 @@ export async function createSale(formData: FormData) {
     p_paid_amount: parsed.data.paidAmount,
     p_customer_id: parsed.data.customerId || null,
     p_notes: parsed.data.notes || null,
+    p_idempotency_key: parsed.data.idempotencyKey,
   });
 
   if (error) redirect(`/sales?store=${parsed.data.storeId}&error=sale-failed`);
