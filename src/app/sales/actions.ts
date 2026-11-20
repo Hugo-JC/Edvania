@@ -47,8 +47,8 @@ export async function createSale(formData: FormData) {
     p_items: items,
     p_payment_method: parsed.data.paymentMethod,
     p_paid_amount: parsed.data.paidAmount,
-    p_customer_id: parsed.data.customerId || null,
-    p_notes: parsed.data.notes || null,
+    p_customer_id: parsed.data.customerId || undefined,
+    p_notes: parsed.data.notes || undefined,
     p_idempotency_key: parsed.data.idempotencyKey,
   });
 
