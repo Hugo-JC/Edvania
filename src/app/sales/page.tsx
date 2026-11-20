@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { createSale } from "./actions";
+import { SaleForm } from "./sale-form";
 
 type Props = { searchParams: Promise<{ store?: string; error?: string; created?: string }> };
 const money = new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA", maximumFractionDigits: 2 });
@@ -55,49 +55,12 @@ export default async function SalesPage({ searchParams }: Props) {
 
         <section className="panel-card">
           <h2>Nova venda</h2>
-          <form className="form product-form" action={createSale}>
-            <input type="hidden" name="storeId" value={storeId} />
-            <input type="hidden" name="idempotencyKey" value={randomUUID()} />
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead><tr><th>Produto</th><th>Preço unitário</th><th>Stock</th><th>Quantidade</th></tr></thead>
-                <tbody>
-                  {products?.map((product) => {
-                    const stock = stockByProduct.get(product.id) ?? 0;
-                    return <tr key={product.id}>
-                      <td><strong>{product.name}</strong><small>{product.sku || product.unit}</small></td>
-                      <td>{money.format(Number(product.sale_price))}</td>
-                      <td>{product.track_stock ? stock + " " + product.unit : "Não controlado"}</td>
-                      <td><input aria-label={`Quantidade de ${product.name}`} name={`quantity_${product.id}`} type="number" min="0" max={product.track_stock ? stock : undefined} step="0.001" defaultValue="0" /></td>
-                    </tr>;
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {!products?.length && <p className="muted">Adiciona produtos ao catálogo antes de registar vendas.</p>}
-            <label>Cliente (opcional)
-              <select name="customerId" defaultValue="">
-                <option value="">Venda sem cliente associado</option>
-                {customers?.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
-              </select>
-            </label>
-            <div className="form-grid">
-              <label>Forma de pagamento
-                <select name="paymentMethod" defaultValue="cash">
-                  <option value="cash">Numerário</option>
-                  <option value="bank_transfer">Transferência bancária</option>
-                  <option value="multicaixa_reference">Referência Multicaixa</option>
-                  <option value="multicaixa_express">Multicaixa Express</option>
-                  <option value="other">Outro</option>
-                </select>
-              </label>
-              <label>Valor recebido (AOA)
-                <input name="paidAmount" type="number" min="0" step="0.01" defaultValue="0" required />
-              </label>
-            </div>
-            <label>Observações<input name="notes" maxLength={500} /></label>
-            <button className="primary-button" type="submit" disabled={!products?.length}>Confirmar venda</button>
-          </form>
+          <SaleForm
+            customers={customers ?? []}
+            idempotencyKey={randomUUID()}
+            products={(products ?? []).map((product) => ({ ...product, stock: stockByProduct.get(product.id) ?? 0 }))}
+            storeId={storeId}
+          />
         </section>
 
         <section className="panel-card">

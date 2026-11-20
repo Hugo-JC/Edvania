@@ -7,10 +7,12 @@ declare
   v_user uuid := gen_random_uuid();
   v_employee uuid := gen_random_uuid();
   v_store uuid;
+  v_other_store uuid;
   v_location uuid;
   v_supplier uuid;
   v_product uuid;
   v_untracked uuid;
+  v_other_product uuid;
   v_key uuid := gen_random_uuid();
   v_untracked_key uuid := gen_random_uuid();
   v_purchase uuid;
@@ -29,6 +31,10 @@ begin
   insert into public.stores (name, created_by)
   values ('TEST PURCHASE - rollback only', v_user)
   returning id into v_store;
+
+  insert into public.stores (name, created_by)
+  values ('TEST PURCHASE OTHER STORE - rollback only', v_user)
+  returning id into v_other_store;
 
   insert into public.store_memberships (store_id, user_id, role, status, joined_at)
   values
@@ -50,6 +56,10 @@ begin
   insert into public.products (store_id, name, sale_price, cost_price, track_stock)
   values (v_store, 'Purchased untracked item', 50, 0, false)
   returning id into v_untracked;
+
+  insert into public.products (store_id, name, sale_price, cost_price, track_stock)
+  values (v_other_store, 'Other store purchased item', 50, 0, true)
+  returning id into v_other_product;
 
   perform set_config('request.jwt.claim.sub', v_user::text, true);
 
@@ -119,6 +129,17 @@ begin
 
   select count(*) into v_count from public.purchases where store_id=v_store;
   if v_count <> 2 then raise exception 'TEST FAILED: failed purchase left a partial header'; end if;
+
+  begin
+    perform public.create_purchase_with_receipt(
+      v_store,
+      jsonb_build_array(jsonb_build_object('product_id', v_other_product, 'quantity', 1, 'unit_cost', 10)),
+      v_supplier, null, null, gen_random_uuid()
+    );
+    raise exception 'TEST FAILED: cross-store product was accepted';
+  exception when others then
+    if sqlerrm not like '%product_not_found%' then raise; end if;
+  end;
 
   perform set_config('request.jwt.claim.sub', v_employee::text, true);
   begin

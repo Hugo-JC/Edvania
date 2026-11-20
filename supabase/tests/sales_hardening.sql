@@ -8,9 +8,11 @@ declare
   v_user uuid := gen_random_uuid();
   v_employee uuid := gen_random_uuid();
   v_store uuid;
+  v_other_store uuid;
   v_location uuid;
   v_product uuid;
   v_untracked uuid;
+  v_other_product uuid;
   v_key uuid := gen_random_uuid();
   v_untracked_key uuid := gen_random_uuid();
   v_sale uuid;
@@ -37,6 +39,10 @@ begin
   values ('TEST - rollback only', v_user)
   returning id into v_store;
 
+  insert into public.stores (name, created_by)
+  values ('TEST OTHER STORE - rollback only', v_user)
+  returning id into v_other_store;
+
   insert into public.store_memberships (store_id, user_id, role, status, joined_at)
   values
     (v_store, v_user, 'owner', 'active', now()),
@@ -53,6 +59,10 @@ begin
   insert into public.products (store_id, name, sale_price, cost_price, track_stock)
   values (v_store, 'Untracked test product', 75, 0, false)
   returning id into v_untracked;
+
+  insert into public.products (store_id, name, sale_price, cost_price, track_stock)
+  values (v_other_store, 'Other store product', 50, 0, false)
+  returning id into v_other_product;
 
   insert into public.inventory_movements (
     store_id, product_id, location_id, movement_type, quantity_delta, created_by
@@ -120,6 +130,17 @@ begin
   where store_id = v_store and idempotency_key is not null
     and request_fingerprint is not null;
   if v_count <> 1 then raise exception 'TEST FAILED: failed sale left a partial sales row'; end if;
+
+  begin
+    perform public.create_sale_with_payment(
+      v_store,
+      jsonb_build_array(jsonb_build_object('product_id', v_other_product, 'quantity', 1)),
+      'cash', 0, null, null, gen_random_uuid()
+    );
+    raise exception 'TEST FAILED: cross-store product was accepted';
+  exception when others then
+    if sqlerrm not like '%product_not_found%' then raise; end if;
+  end;
 
   v_sale := public.create_sale_with_payment(
     v_store,

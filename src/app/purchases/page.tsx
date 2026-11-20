@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { createPurchase } from "./actions";
+import { PurchaseForm } from "./purchase-form";
 
 type Props = { searchParams: Promise<{ store?: string; error?: string; created?: string }> };
 const money = new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA", maximumFractionDigits: 2 });
@@ -44,39 +44,12 @@ export default async function PurchasesPage({ searchParams }: Props) {
 
         <section className="panel-card">
           <h2>Nova compra e recepção</h2>
-          <form className="form product-form" action={createPurchase}>
-            <input type="hidden" name="storeId" value={storeId} />
-            <input type="hidden" name="idempotencyKey" value={randomUUID()} />
-            <div className="form-grid">
-              <label>Fornecedor (opcional)
-                <select name="supplierId" defaultValue="">
-                  <option value="">Sem fornecedor associado</option>
-                  {suppliers?.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-                </select>
-              </label>
-              <label>Referência da factura / guia
-                <input name="supplierReference" maxLength={120} placeholder="Ex.: FT 2026/001" />
-              </label>
-            </div>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead><tr><th>Produto</th><th>Unidade</th><th>Custo unitário (AOA)</th><th>Quantidade recebida</th></tr></thead>
-                <tbody>
-                  {products?.map((product) => (
-                    <tr key={product.id}>
-                      <td><strong>{product.name}</strong><small>{product.sku || (product.track_stock ? "Controla stock" : "Sem controlo de stock")}</small></td>
-                      <td>{product.unit}</td>
-                      <td><input aria-label={`Custo unitário de ${product.name}`} name={`unitCost_${product.id}`} type="number" min="0" step="0.01" defaultValue={Number(product.cost_price)} /></td>
-                      <td><input aria-label={`Quantidade recebida de ${product.name}`} name={`quantity_${product.id}`} type="number" min="0" step="0.001" defaultValue="0" /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!products?.length && <p className="muted">Adiciona produtos ao catálogo antes de registar uma compra.</p>}
-            <label>Observações<input name="notes" maxLength={500} /></label>
-            <button className="primary-button" type="submit" disabled={!products?.length}>Confirmar compra e entrada no stock</button>
-          </form>
+          <PurchaseForm
+            idempotencyKey={randomUUID()}
+            products={products ?? []}
+            storeId={storeId}
+            suppliers={suppliers ?? []}
+          />
         </section>
 
         <section className="panel-card">
