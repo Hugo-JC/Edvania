@@ -7,8 +7,8 @@ declare v_user_id uuid := (select auth.uid()); v_id bigint;
 begin
  if v_user_id is null then raise exception 'not_authenticated'; end if;
  if not public.has_store_access(p_store_id) then raise exception 'store_access_denied'; end if;
- if p_action not in ('sale.created','purchase.received','cash_session.opened','cash_session.closed','expense.registered') then raise exception 'invalid_audit_action'; end if;
- if p_entity_type not in ('sale','purchase','cash_session','expense') then raise exception 'invalid_audit_entity'; end if;
+ if p_action not in ('sale.created','purchase.received','cash_session.opened','cash_session.closed','expense.registered','product.created','category.created','customer.created','supplier.created','inventory.entry') then raise exception 'invalid_audit_action'; end if;
+ if p_entity_type not in ('sale','purchase','cash_session','expense','product','category','customer','supplier','inventory_movement') then raise exception 'invalid_audit_entity'; end if;
  if p_metadata is null or pg_catalog.jsonb_typeof(p_metadata)<>'object' or pg_catalog.octet_length(p_metadata::text)>4096 then raise exception 'invalid_audit_metadata'; end if;
  if p_request_id is not null and pg_catalog.char_length(p_request_id)>120 then raise exception 'invalid_audit_request_id'; end if;
  insert into public.audit_logs(store_id,actor_user_id,action,entity_type,entity_id,request_id,metadata)
