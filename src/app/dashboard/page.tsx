@@ -40,8 +40,10 @@ export default async function DashboardPage() {
                 <span className="role">{memberships.find((membership) => membership.store_id === store.id)?.role}</span>
                 <Link className="quiet-button" href={`/products?store=${store.id}`}>Gerir produtos</Link>
                 {["owner", "admin", "manager"].includes(memberships.find((membership) => membership.store_id === store.id)?.role ?? "") && (
-                  <Link className="quiet-button" href={`/sales?store=${store.id}`}>Registar vendas</Link>
-                  <Link className="quiet-button" href={`/purchases?store=${store.id}`}>Registar compras</Link>
+                  <>
+                    <Link className="quiet-button" href={`/sales?store=${store.id}`}>Registar vendas</Link>
+                    <Link className="quiet-button" href={`/purchases?store=${store.id}`}>Registar compras</Link>
+                  </>
                 )}
               </div>
             </article>
