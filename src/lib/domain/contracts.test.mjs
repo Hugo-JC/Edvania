@@ -1,0 +1,7 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {saleSchema,purchaseSchema,openCashSchema,closeCashSchema,expenseSchema} from "./contracts.ts";
+const id="11111111-1111-4111-8111-111111111111";
+test("sale contract accepts a well-formed confirmed operation",()=>{assert.equal(saleSchema.safeParse({items:[{productId:id,quantity:1}],paymentMethod:"cash",paidAmount:100,idempotencyKey:id}).success,true);});
+test("sale contract rejects malformed ids, empty items and unknown client fields",()=>{assert.equal(saleSchema.safeParse({items:[],paymentMethod:"cash",paidAmount:0,idempotencyKey:id}).success,false);assert.equal(saleSchema.safeParse({items:[{productId:"bad",quantity:1}],paymentMethod:"cash",paidAmount:0,idempotencyKey:id}).success,false);assert.equal(saleSchema.safeParse({storeId:id,items:[{productId:id,quantity:1}],paymentMethod:"cash",paidAmount:0,idempotencyKey:id}).success,false);});
+test("purchase and cash contracts enforce idempotency and money precision",()=>{assert.equal(purchaseSchema.safeParse({items:[{productId:id,quantity:1,unitCost:10.25}],idempotencyKey:id}).success,true);assert.equal(openCashSchema.safeParse({registerId:id,openingAmount:0,idempotencyKey:id}).success,true);assert.equal(closeCashSchema.safeParse({sessionId:id,countedAmount:3.333,idempotencyKey:id}).success,false);assert.equal(expenseSchema.safeParse({sessionId:id,description:"Rent",amount:10,idempotencyKey:id}).success,true);});
