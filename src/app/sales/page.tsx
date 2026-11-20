@@ -22,7 +22,7 @@ export default async function SalesPage({ searchParams }: Props) {
 
   const [{ data: store }, { data: products }, { data: balances }, { data: customers }, { data: sales }] = await Promise.all([
     supabase.from("stores").select("name").eq("id", storeId).single(),
-    supabase.from("products").select("id,name,sku,sale_price,unit,track_stock").eq("store_id", storeId).eq("status", "active").order("name"),
+    supabase.from("products").select("id,name,sku,sale_price,unit,track_stock").eq("store_id", storeId).eq("status", "active").eq("track_stock", true).order("name"),
     supabase.from("inventory_balances").select("product_id,quantity_on_hand").eq("store_id", storeId),
     supabase.from("customers").select("id,name").eq("store_id", storeId).eq("status", "active").order("name"),
     supabase.from("sales").select("id,sale_number,status,total,sold_at,created_at").eq("store_id", storeId).order("created_at", { ascending: false }).limit(20),
