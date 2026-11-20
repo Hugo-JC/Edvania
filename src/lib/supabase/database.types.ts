@@ -1453,6 +1453,17 @@ export type Database = {
         }
         Returns: string
       }
+      create_sale_with_payment: {
+        Args: {
+          p_store_id: string
+          p_items: Json
+          p_payment_method: Database["public"]["Enums"]["payment_method"]
+          p_paid_amount?: number
+          p_customer_id?: string | null
+          p_notes?: string | null
+        }
+        Returns: string
+      }
     }
     Enums: {
       payment_method:
