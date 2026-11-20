@@ -1439,6 +1439,20 @@ export type Database = {
         Args: { p_name: string }
         Returns: string
       }
+      create_product_with_opening_stock: {
+        Args: {
+          p_store_id: string
+          p_name: string
+          p_sale_price: number
+          p_cost_price?: number
+          p_sku?: string | null
+          p_category_id?: string | null
+          p_min_stock?: number
+          p_opening_quantity?: number
+          p_unit?: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       payment_method:
