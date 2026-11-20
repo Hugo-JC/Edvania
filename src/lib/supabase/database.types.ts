@@ -267,9 +267,11 @@ export type Database = {
           description: string | null
           direction: string
           id: string
+          idempotency_key: string | null
           movement_type: string
           reference_id: string | null
           reference_type: string | null
+          request_fingerprint: string | null
           session_id: string
           store_id: string
         }
@@ -280,9 +282,11 @@ export type Database = {
           description?: string | null
           direction: string
           id?: string
+          idempotency_key?: string | null
           movement_type: string
           reference_id?: string | null
           reference_type?: string | null
+          request_fingerprint?: string | null
           session_id: string
           store_id: string
         }
@@ -293,9 +297,11 @@ export type Database = {
           description?: string | null
           direction?: string
           id?: string
+          idempotency_key?: string | null
           movement_type?: string
           reference_id?: string | null
           reference_type?: string | null
+          request_fingerprint?: string | null
           session_id?: string
           store_id?: string
         }
@@ -365,10 +371,13 @@ export type Database = {
         Row: {
           closed_at: string | null
           closed_by: string | null
+          close_idempotency_key: string | null
+          close_request_fingerprint: string | null
           closing_amount: number | null
           difference_amount: number | null
           expected_amount: number | null
           id: string
+          idempotency_key: string | null
           notes: string | null
           opened_at: string
           opened_by: string
@@ -379,10 +388,13 @@ export type Database = {
         Insert: {
           closed_at?: string | null
           closed_by?: string | null
+          close_idempotency_key?: string | null
+          close_request_fingerprint?: string | null
           closing_amount?: number | null
           difference_amount?: number | null
           expected_amount?: number | null
           id?: string
+          idempotency_key?: string | null
           notes?: string | null
           opened_at?: string
           opened_by: string
@@ -393,10 +405,13 @@ export type Database = {
         Update: {
           closed_at?: string | null
           closed_by?: string | null
+          close_idempotency_key?: string | null
+          close_request_fingerprint?: string | null
           closing_amount?: number | null
           difference_amount?: number | null
           expected_amount?: number | null
           id?: string
+          idempotency_key?: string | null
           notes?: string | null
           opened_at?: string
           opened_by?: string
@@ -426,6 +441,7 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          idempotency_key: string | null
           name: string
           parent_id: string | null
           status: Database["public"]["Enums"]["record_status"]
@@ -528,9 +544,11 @@ export type Database = {
           currency_code: string
           description: string
           id: string
+          idempotency_key: string | null
           incurred_at: string
           notes: string | null
           payment_method: Database["public"]["Enums"]["payment_method"] | null
+          request_fingerprint: string | null
           store_id: string
           updated_at: string
         }
@@ -542,9 +560,11 @@ export type Database = {
           currency_code?: string
           description: string
           id?: string
+          idempotency_key?: string | null
           incurred_at?: string
           notes?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          request_fingerprint?: string | null
           store_id: string
           updated_at?: string
         }
@@ -556,9 +576,11 @@ export type Database = {
           currency_code?: string
           description?: string
           id?: string
+          idempotency_key?: string | null
           incurred_at?: string
           notes?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          request_fingerprint?: string | null
           store_id?: string
           updated_at?: string
         }
@@ -1556,6 +1578,10 @@ export type Database = {
       }
     }
     Functions: {
+      close_cash_session: {
+        Args: { p_counted_amount: number; p_idempotency_key?: string; p_notes?: string; p_session_id: string; p_store_id: string }
+        Returns: string
+      }
       create_product_with_opening_stock: {
         Args: {
           p_category_id?: string
@@ -1604,6 +1630,18 @@ export type Database = {
           p_store_id: string
         }
         Returns: boolean
+      }
+      open_cash_session: {
+        Args: { p_idempotency_key?: string; p_notes?: string; p_opening_amount: number; p_register_id: string; p_store_id: string }
+        Returns: string
+      }
+      record_cash_expense: {
+        Args: { p_amount: number; p_category: string; p_description: string; p_idempotency_key?: string; p_notes?: string; p_session_id: string; p_store_id: string }
+        Returns: string
+      }
+      record_cash_movement: {
+        Args: { p_amount: number; p_description: string; p_direction: string; p_idempotency_key?: string; p_movement_type: string; p_session_id: string; p_store_id: string }
+        Returns: string
       }
     }
     Enums: {
