@@ -28,6 +28,16 @@ export default async function SalesPage({ searchParams }: Props) {
     supabase.from("sales").select("id,sale_number,status,total,sold_at,created_at").eq("store_id", storeId).order("created_at", { ascending: false }).limit(20),
   ]);
   const stockByProduct = new Map((balances ?? []).map((item) => [item.product_id, Number(item.quantity_on_hand ?? 0)]));
+  const saleIds = (sales ?? []).map((sale) => sale.id);
+  const { data: payments } = saleIds.length
+    ? await supabase.from("payments").select("sale_id,amount,status").in("sale_id", saleIds)
+    : { data: [] };
+  const paidBySale = new Map<string, number>();
+  for (const payment of payments ?? []) {
+    if (payment.status === "confirmed") {
+      paidBySale.set(payment.sale_id, (paidBySale.get(payment.sale_id) ?? 0) + Number(payment.amount));
+    }
+  }
 
   return (
     <main className="dashboard-shell">
@@ -92,12 +102,14 @@ export default async function SalesPage({ searchParams }: Props) {
           <div className="section-heading"><h2>Vendas recentes</h2><span>{sales?.length ?? 0} registos</span></div>
           {!sales?.length ? <p className="muted">Ainda não existem vendas registadas.</p> : (
             <div className="table-wrap"><table className="data-table">
-              <thead><tr><th>Venda</th><th>Data</th><th>Estado</th><th>Total</th></tr></thead>
+              <thead><tr><th>Venda</th><th>Data</th><th>Estado</th><th>Total</th><th>Recebido</th><th>Em falta</th></tr></thead>
               <tbody>{sales.map((sale) => <tr key={sale.id}>
                 <td>#{sale.sale_number}</td>
                 <td>{new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(sale.sold_at ?? sale.created_at))}</td>
                 <td>{sale.status === "confirmed" ? "Confirmada" : sale.status}</td>
                 <td>{money.format(Number(sale.total))}</td>
+                <td>{money.format(paidBySale.get(sale.id) ?? 0)}</td>
+                <td>{money.format(Math.max(0, Number(sale.total) - (paidBySale.get(sale.id) ?? 0)))}</td>
               </tr>)}</tbody>
             </table></div>
           )}
