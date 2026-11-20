@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -56,6 +57,7 @@ export default async function SalesPage({ searchParams }: Props) {
           <h2>Nova venda</h2>
           <form className="form product-form" action={createSale}>
             <input type="hidden" name="storeId" value={storeId} />
+            <input type="hidden" name="idempotencyKey" value={randomUUID()} />
             <div className="table-wrap">
               <table className="data-table">
                 <thead><tr><th>Produto</th><th>Preço unitário</th><th>Stock</th><th>Quantidade</th></tr></thead>
