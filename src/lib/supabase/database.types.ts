@@ -875,6 +875,129 @@ export type Database = {
           },
         ]
       }
+      purchase_items: {
+        Row: {
+          created_at: string
+          id: string
+          line_total: number
+          product_id: string
+          product_name: string
+          purchase_id: string
+          quantity: number
+          sku: string | null
+          store_id: string
+          unit_cost: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          line_total: number
+          product_id: string
+          product_name: string
+          purchase_id: string
+          quantity: number
+          sku?: string | null
+          store_id: string
+          unit_cost: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          line_total?: number
+          product_id?: string
+          product_name?: string
+          purchase_id?: string
+          quantity?: number
+          sku?: string | null
+          store_id?: string
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_items_store_product_fkey"
+            columns: ["store_id", "product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["store_id", "id"]
+          },
+          {
+            foreignKeyName: "purchase_items_store_purchase_fkey"
+            columns: ["store_id", "purchase_id"]
+            isOneToOne: false
+            referencedRelation: "purchases"
+            referencedColumns: ["store_id", "id"]
+          },
+        ]
+      }
+      purchases: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          idempotency_key: string | null
+          notes: string | null
+          purchase_number: number
+          received_at: string | null
+          request_fingerprint: string | null
+          status: Database["public"]["Enums"]["purchase_status"]
+          store_id: string
+          subtotal: number
+          supplier_id: string | null
+          supplier_reference: string | null
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          idempotency_key?: string | null
+          notes?: string | null
+          purchase_number?: number
+          received_at?: string | null
+          request_fingerprint?: string | null
+          status?: Database["public"]["Enums"]["purchase_status"]
+          store_id: string
+          subtotal?: number
+          supplier_id?: string | null
+          supplier_reference?: string | null
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          idempotency_key?: string | null
+          notes?: string | null
+          purchase_number?: number
+          received_at?: string | null
+          request_fingerprint?: string | null
+          status?: Database["public"]["Enums"]["purchase_status"]
+          store_id?: string
+          subtotal?: number
+          supplier_id?: string | null
+          supplier_reference?: string | null
+          total?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchases_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchases_store_supplier_fkey"
+            columns: ["store_id", "supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["store_id", "id"]
+          },
+        ]
+      }
       sale_items: {
         Row: {
           created_at: string
@@ -1447,6 +1570,17 @@ export type Database = {
         }
         Returns: string
       }
+      create_purchase_with_receipt: {
+        Args: {
+          p_idempotency_key?: string
+          p_items: Json
+          p_notes?: string
+          p_store_id: string
+          p_supplier_id?: string
+          p_supplier_reference?: string
+        }
+        Returns: string
+      }
       create_sale_with_payment: {
         Args: {
           p_customer_id?: string
@@ -1485,6 +1619,7 @@ export type Database = {
         | "failed"
         | "cancelled"
         | "refunded"
+      purchase_status: "draft" | "received" | "cancelled"
       record_status: "active" | "inactive" | "archived"
       sale_status: "draft" | "confirmed" | "cancelled" | "refunded"
       stock_movement_type:
@@ -1638,6 +1773,7 @@ export const Constants = {
         "cancelled",
         "refunded",
       ],
+      purchase_status: ["draft", "received", "cancelled"],
       record_status: ["active", "inactive", "archived"],
       sale_status: ["draft", "confirmed", "cancelled", "refunded"],
       stock_movement_type: [
