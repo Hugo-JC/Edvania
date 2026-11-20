@@ -949,7 +949,9 @@ export type Database = {
           customer_id: string | null
           discount_total: number
           id: string
+          idempotency_key: string | null
           notes: string | null
+          request_fingerprint: string | null
           sale_number: number
           sold_at: string | null
           status: Database["public"]["Enums"]["sale_status"]
@@ -965,7 +967,9 @@ export type Database = {
           customer_id?: string | null
           discount_total?: number
           id?: string
+          idempotency_key?: string | null
           notes?: string | null
+          request_fingerprint?: string | null
           sale_number?: number
           sold_at?: string | null
           status?: Database["public"]["Enums"]["sale_status"]
@@ -981,7 +985,9 @@ export type Database = {
           customer_id?: string | null
           discount_total?: number
           id?: string
+          idempotency_key?: string | null
           notes?: string | null
+          request_fingerprint?: string | null
           sale_number?: number
           sold_at?: string | null
           status?: Database["public"]["Enums"]["sale_status"]
@@ -1427,6 +1433,36 @@ export type Database = {
       }
     }
     Functions: {
+      create_product_with_opening_stock: {
+        Args: {
+          p_category_id?: string
+          p_cost_price?: number
+          p_min_stock?: number
+          p_name: string
+          p_opening_quantity?: number
+          p_sale_price: number
+          p_sku?: string
+          p_store_id: string
+          p_unit?: string
+        }
+        Returns: string
+      }
+      create_sale_with_payment: {
+        Args: {
+          p_customer_id?: string
+          p_idempotency_key?: string
+          p_items: Json
+          p_notes?: string
+          p_paid_amount?: number
+          p_payment_method: Database["public"]["Enums"]["payment_method"]
+          p_store_id: string
+        }
+        Returns: string
+      }
+      create_store_for_current_user: {
+        Args: { p_name: string }
+        Returns: string
+      }
       has_store_access: { Args: { p_store_id: string }; Returns: boolean }
       has_store_role: {
         Args: {
@@ -1434,35 +1470,6 @@ export type Database = {
           p_store_id: string
         }
         Returns: boolean
-      }
-      create_store_for_current_user: {
-        Args: { p_name: string }
-        Returns: string
-      }
-      create_product_with_opening_stock: {
-        Args: {
-          p_store_id: string
-          p_name: string
-          p_sale_price: number
-          p_cost_price?: number
-          p_sku?: string | null
-          p_category_id?: string | null
-          p_min_stock?: number
-          p_opening_quantity?: number
-          p_unit?: string
-        }
-        Returns: string
-      }
-      create_sale_with_payment: {
-        Args: {
-          p_store_id: string
-          p_items: Json
-          p_payment_method: Database["public"]["Enums"]["payment_method"]
-          p_paid_amount?: number
-          p_customer_id?: string | null
-          p_notes?: string | null
-        }
-        Returns: string
       }
     }
     Enums: {
@@ -1647,4 +1654,3 @@ export const Constants = {
     },
   },
 } as const
-
