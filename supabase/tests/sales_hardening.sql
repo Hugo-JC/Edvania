@@ -146,6 +146,16 @@ begin
   if has_table_privilege('authenticated', 'public.payments', 'INSERT') then
     raise exception 'TEST FAILED: authenticated still has direct payment INSERT';
   end if;
+  if has_table_privilege('authenticated', 'public.sales', 'INSERT')
+     or has_table_privilege('authenticated', 'public.sales', 'UPDATE')
+     or has_table_privilege('authenticated', 'public.sales', 'DELETE') then
+    raise exception 'TEST FAILED: authenticated still has direct sales writes';
+  end if;
+  if has_table_privilege('authenticated', 'public.sale_items', 'INSERT')
+     or has_table_privilege('authenticated', 'public.sale_items', 'UPDATE')
+     or has_table_privilege('authenticated', 'public.sale_items', 'DELETE') then
+    raise exception 'TEST FAILED: authenticated still has direct sale_items writes';
+  end if;
 
   raise notice 'PASS: idempotency, payload mismatch, stock rollback, non-tracked products, role enforcement and payment grants';
 end;
