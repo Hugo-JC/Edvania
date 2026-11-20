@@ -1,0 +1,18 @@
+import { z } from "zod";
+export const uuidSchema=z.string().uuid();
+export const paymentMethodSchema=z.enum(["cash","bank_transfer","multicaixa_reference","multicaixa_express","other"]);
+const money=z.number().finite().min(0).multipleOf(.01);
+const quantity=z.number().finite().positive().multipleOf(.001);
+export const searchSchema=z.object({query:z.string().trim().max(120).optional(),limit:z.number().int().min(1).max(50).default(20)}).strict();
+export const idSchema=z.object({id:uuidSchema}).strict();
+export const saleSchema=z.object({items:z.array(z.object({productId:uuidSchema,quantity}).strict()).min(1).max(100),paymentMethod:paymentMethodSchema,paidAmount:money,customerId:uuidSchema.optional(),notes:z.string().trim().max(500).optional(),idempotencyKey:uuidSchema}).strict();
+export const purchaseSchema=z.object({items:z.array(z.object({productId:uuidSchema,quantity,unitCost:money}).strict()).min(1).max(100),supplierId:uuidSchema.optional(),supplierReference:z.string().trim().max(120).optional(),notes:z.string().trim().max(500).optional(),idempotencyKey:uuidSchema}).strict();
+export const openCashSchema=z.object({registerId:uuidSchema,openingAmount:money,notes:z.string().trim().max(500).optional(),idempotencyKey:uuidSchema}).strict();
+export const closeCashSchema=z.object({sessionId:uuidSchema,countedAmount:money,notes:z.string().trim().max(500).optional(),idempotencyKey:uuidSchema}).strict();
+export const expenseSchema=z.object({sessionId:uuidSchema,description:z.string().trim().min(1).max(500),category:z.string().trim().max(120).optional(),amount:z.number().finite().positive().multipleOf(.01),notes:z.string().trim().max(500).optional(),idempotencyKey:uuidSchema}).strict();
+export type StoreRole="owner"|"admin"|"manager"|"employee";
+export type ToolContext=Readonly<{storeId:string;userId:string;requestId?:string}>;
+export type DomainErrorCode="VALIDATION"|"UNAUTHENTICATED"|"FORBIDDEN"|"NOT_FOUND"|"BUSINESS_RULE"|"CONFLICT"|"DEPENDENCY"|"UNEXPECTED";
+export type DomainResult<T>={ok:true;data:T}|{ok:false;error:{code:DomainErrorCode;message:string;retryable:boolean}};
+export const success=<T>(data:T):DomainResult<T>=>({ok:true,data});
+export const failure=(code:DomainErrorCode,message:string,retryable=false):DomainResult<never>=>({ok:false,error:{code,message,retryable}});
