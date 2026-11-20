@@ -36,7 +36,10 @@ export default async function DashboardPage() {
           {stores?.map((store) => (
             <article className="store-card" key={store.id}>
               <div><strong>{store.name}</strong><span>{store.currency_code} · Loja activa</span></div>
-              <span className="role">{memberships.find((membership) => membership.store_id === store.id)?.role}</span>
+              <div className="store-actions">
+                <span className="role">{memberships.find((membership) => membership.store_id === store.id)?.role}</span>
+                <Link className="quiet-button" href={`/products?store=${store.id}`}>Gerir produtos</Link>
+              </div>
             </article>
           ))}
         </div>
