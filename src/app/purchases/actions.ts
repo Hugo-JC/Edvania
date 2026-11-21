@@ -41,7 +41,7 @@ export async function createPurchase(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { error } = await supabase.rpc("create_purchase_with_receipt", {
+  const { error } = await supabase.rpc("create_purchase_with_audit", {
     p_store_id: parsed.data.storeId,
     p_items: items,
     p_supplier_id: parsed.data.supplierId || undefined,

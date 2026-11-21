@@ -18,7 +18,7 @@ Apenas o proprietário pode gerir as associações e papéis de equipa nesta fas
 | Vendas | `sales`, `sale_items` |
 | Financeiro | `payments`, `expenses`, `cash_registers`, `cash_sessions`, `cash_movements` |
 | Pagamentos nacionais | `proxypay_payments`, `webhook_events` |
-| WhatsApp | `whatsapp_connections`, `baileys_auth_state`, `whatsapp_conversations`, `whatsapp_messages` |
+| WhatsApp | `whatsapp_connections`, `baileys_auth_state`, `whatsapp_conversations`, `whatsapp_messages`, `whatsapp_jobs`, `whatsapp_outbox` |
 | Plataforma | `ai_usage_logs`, `automations`, `audit_logs` |
 
 ## Regras críticas
@@ -33,6 +33,21 @@ Apenas o proprietário pode gerir as associações e papéis de equipa nesta fas
 - Todas as 27 tabelas têm RLS activa. O advisor de segurança não reporta alertas.
 - Não foi carregada ainda a lista administrativa de províncias/municípios: só deve ser semeada a partir de uma fonte oficial validada.
 - Os índices de suporte às chaves estrangeiras foram adicionados. Os avisos de índices ainda não utilizados são esperados numa base de dados acabada de criar e devem ser reavaliados após tráfego real.
+
+## Base WhatsApp e migration de processamento
+
+O schema base incluía no máximo uma `whatsapp_connection` por loja, deduplicação de
+mensagens por loja, sem ligação directa da conversa/mensagem nem fila/outbox.
+`20261121100000_whatsapp_durable_processing.sql` acrescenta ligação tenant-scoped
+às conversas e mensagens, deduplicação por ligação, tabelas de job/outbox e funções
+com lease `SKIP LOCKED`. Jobs/outbox são acessíveis apenas pelo `service_role`;
+expiração de processamento inbound é reprocessável, enquanto entrega outbound
+ambígua termina em `unknown` e não é reenviada automaticamente.
+
+A migration é local, inclui guardas que abortam perante registos órfãos/duplicados,
+e ainda não foi executada num PostgreSQL descartável nem aplicada remotamente.
+Validar schema e estado remoto antes de a aplicar; não assumir que o snapshot local
+representa o banco Supabase actual.
 
 ## Migrações remotas
 

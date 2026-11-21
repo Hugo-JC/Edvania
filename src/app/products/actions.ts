@@ -39,7 +39,7 @@ export async function createProduct(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { error } = await supabase.rpc("create_product_with_opening_stock", {
+  const { error } = await supabase.rpc("create_product_with_audit", {
     p_store_id: parsed.data.storeId,
     p_name: parsed.data.name,
     p_sale_price: parsed.data.salePrice,
@@ -66,9 +66,9 @@ export async function createCategory(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { error } = await supabase.from("categories").insert({
-    store_id: parsed.data.storeId,
-    name: parsed.data.name,
+  const { error } = await supabase.rpc("create_category_with_audit", {
+    p_store_id: parsed.data.storeId,
+    p_name: parsed.data.name,
   });
   if (error) redirect(`/products?store=${parsed.data.storeId}&error=category`);
   redirect(`/products?store=${parsed.data.storeId}&category=created`);

@@ -3,7 +3,7 @@
 ## Arquitectura
 - `contracts.ts`: schemas Zod, contexto confiável, resultados e erros.
 - `policy.ts` / `authorization.ts`: matriz de permissões, autenticação e membership activa validada no servidor.
-- `audit.ts`: escrita através da RPC append-only `write_audit_log`, pois a tabela `audit_logs` bloqueia DML directo por RLS.
+- `20261121080000_atomic_domain_audit.sql`: wrappers transaccionais que executam a mutação e a auditoria append-only na mesma chamada PostgreSQL. As tabelas `audit_logs` continuam sem DML directo para clientes.
 - `services.ts`: consultas e operações de vendas, compras, caixa, despesas, clientes e fornecedores.
 - `catalog.ts`: criação de produtos via RPC existente e categorias via RLS.
 - `parties.ts`: criação de clientes e fornecedores, com validação de papéis.
@@ -21,11 +21,13 @@ A política de inventário permite apenas entradas positivas `opening` e `return
 Consultas: `get_store_summary`, `search_products`, `get_product_details`, `check_stock`, `search_customers`, `get_customer_balance`, `get_sales_summary`, `get_cash_register_status`.
 Operações: `create_sale`, `create_purchase`, `receive_purchase` (recusa explicativa até existir RPC), `register_expense`, `open_cash_session`, `close_cash_session`.
 
-As operações de escrita devem ser chamadas pela orquestração apenas após confirmação explícita e com `idempotencyKey` por intenção confirmada. As operações usam RPCs transaccionais existentes sempre que disponíveis. Eventos de auditoria são escritos através de RPC restrita depois do sucesso da operação comercial.
+As operações de escrita devem ser chamadas pela orquestração apenas após confirmação explícita e com `idempotencyKey` por intenção confirmada. As mutações expostas pelos serviços devem usar as RPCs `*_with_audit` para confirmar a mutação e a auditoria na mesma transacção. Para operações com idempotency key, a auditoria usa essa chave para que um replay do mesmo pedido não crie um segundo evento. A migration é local e ainda não foi aplicada remotamente; não activar estes serviços antes da sua aplicação validada.
+
+`registerExpense` converte a categoria opcional em texto vazio ao chamar a RPC; a função SQL normaliza esse valor para `NULL`. Isto corresponde à assinatura gerada da RPC, que exige o argumento `p_category`.
 
 ## Testes
 - `node --experimental-strip-types --test src/lib/domain/*.test.mjs`: contratos Zod e matriz de papéis.
 - `npm run typecheck`, `npm run lint`, `npm run build`.
 - Testes SQL de integração existentes para vendas, compras e caixa requerem base de dados descartável; não executar fixtures na base de dados de produção.
 
-A migration `20261120120000_domain_audit_rpc.sql` é aditiva e deve ser aplicada antes de activar a nova camada em produção. Não foi aplicada à base de dados remota durante a preparação deste PR.
+A migration `20261120120000_domain_audit_rpc.sql` cria a RPC de auditoria. A migration local `20261121080000_atomic_domain_audit.sql` acrescenta wrappers atómicos; nenhuma delas foi aplicada à base de dados remota nesta execução.
