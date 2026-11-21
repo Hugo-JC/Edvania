@@ -3,6 +3,15 @@
 
 begin;
 
+create function public.reject_test_audit_log()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'test_audit_failure';
+end;
+$$;
+
 do $test$
 declare
   v_user uuid := gen_random_uuid();
@@ -18,7 +27,9 @@ declare
   v_sale uuid;
   v_replay uuid;
   v_count integer;
+  v_audit_count integer;
   v_balance numeric;
+  v_failed_key uuid := gen_random_uuid();
 begin
   insert into auth.users (
     id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -70,13 +81,13 @@ begin
 
   perform set_config('request.jwt.claim.sub', v_user::text, true);
 
-  v_sale := public.create_sale_with_payment(
+  v_sale := public.create_sale_with_audit(
     v_store,
     jsonb_build_array(jsonb_build_object('product_id', v_product, 'quantity', 2)),
     'cash', 100, null, 'idempotency test', v_key
   );
 
-  v_replay := public.create_sale_with_payment(
+  v_replay := public.create_sale_with_audit(
     v_store,
     jsonb_build_array(jsonb_build_object('product_id', v_product, 'quantity', 2)),
     'cash', 100, null, 'idempotency test', v_key
@@ -98,6 +109,10 @@ begin
   where store_id = v_store and product_id = v_product
     and reference_type = 'sale' and reference_id = v_sale;
   if v_count <> 1 then raise exception 'TEST FAILED: sale stock movement count is not one'; end if;
+  select count(*) into v_audit_count from public.audit_logs
+  where store_id = v_store and action = 'sale.created' and entity_id = v_sale
+    and metadata ->> 'idempotency_key' = v_key::text;
+  if v_audit_count <> 1 then raise exception 'TEST FAILED: idempotent replay duplicated or omitted sale audit'; end if;
 
   select coalesce(sum(quantity_delta), 0) into v_balance
   from public.inventory_movements
@@ -151,6 +166,22 @@ begin
   select count(*) into v_count from public.inventory_movements
   where store_id = v_store and product_id = v_untracked and reference_type = 'sale';
   if v_count <> 0 then raise exception 'TEST FAILED: untracked product created a stock movement'; end if;
+
+  execute 'create trigger test_reject_audit_log before insert on public.audit_logs for each row execute function public.reject_test_audit_log()';
+  begin
+    perform public.create_sale_with_audit(
+      v_store,
+      jsonb_build_array(jsonb_build_object('product_id', v_product, 'quantity', 1)),
+      'cash', 0, null, 'audit rollback', v_failed_key
+    );
+    raise exception 'TEST FAILED: sale succeeded when audit persistence failed';
+  exception when others then
+    if sqlerrm not like '%test_audit_failure%' then raise; end if;
+  end;
+  execute 'drop trigger test_reject_audit_log on public.audit_logs';
+  select count(*) into v_count from public.sales
+  where store_id = v_store and idempotency_key = v_failed_key;
+  if v_count <> 0 then raise exception 'TEST FAILED: sale persisted after audit failure'; end if;
 
   perform set_config('request.jwt.claim.sub', v_employee::text, true);
   begin

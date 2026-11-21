@@ -42,7 +42,7 @@ export async function createSale(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { error } = await supabase.rpc("create_sale_with_payment", {
+  const { error } = await supabase.rpc("create_sale_with_audit", {
     p_store_id: parsed.data.storeId,
     p_items: items,
     p_payment_method: parsed.data.paymentMethod,

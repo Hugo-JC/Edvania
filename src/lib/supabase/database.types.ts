@@ -1429,7 +1429,7 @@ export type Database = {
           {
             foreignKeyName: "whatsapp_connections_store_id_fkey"
             columns: ["store_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "stores"
             referencedColumns: ["id"]
           },
@@ -1437,6 +1437,7 @@ export type Database = {
       }
       whatsapp_conversations: {
         Row: {
+          connection_id: string
           contact_name: string | null
           created_at: string
           customer_id: string | null
@@ -1448,6 +1449,7 @@ export type Database = {
           wa_contact: string
         }
         Insert: {
+          connection_id: string
           contact_name?: string | null
           created_at?: string
           customer_id?: string | null
@@ -1459,6 +1461,7 @@ export type Database = {
           wa_contact: string
         }
         Update: {
+          connection_id?: string
           contact_name?: string | null
           created_at?: string
           customer_id?: string | null
@@ -1470,6 +1473,13 @@ export type Database = {
           wa_contact?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversations_store_connection_fkey"
+            columns: ["store_id", "connection_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_connections"
+            referencedColumns: ["store_id", "id"]
+          },
           {
             foreignKeyName: "whatsapp_conversations_store_id_customer_id_fkey"
             columns: ["store_id", "customer_id"]
@@ -1489,6 +1499,7 @@ export type Database = {
       whatsapp_messages: {
         Row: {
           body: string | null
+          connection_id: string
           conversation_id: string
           created_at: string
           delivery_status: string
@@ -1502,6 +1513,7 @@ export type Database = {
         }
         Insert: {
           body?: string | null
+          connection_id: string
           conversation_id: string
           created_at?: string
           delivery_status?: string
@@ -1515,6 +1527,7 @@ export type Database = {
         }
         Update: {
           body?: string | null
+          connection_id?: string
           conversation_id?: string
           created_at?: string
           delivery_status?: string
@@ -1528,6 +1541,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "whatsapp_messages_store_connection_fkey"
+            columns: ["store_id", "connection_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_connections"
+            referencedColumns: ["store_id", "id"]
+          },
+          {
             foreignKeyName: "whatsapp_messages_store_id_conversation_id_fkey"
             columns: ["store_id", "conversation_id"]
             isOneToOne: false
@@ -1536,6 +1556,164 @@ export type Database = {
           },
           {
             foreignKeyName: "whatsapp_messages_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_jobs: {
+        Row: {
+          attempts: number
+          available_at: string
+          connection_id: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          last_error: string | null
+          lease_expires_at: string | null
+          lease_owner: string | null
+          lease_token: string | null
+          max_attempts: number
+          message_id: string
+          status: string
+          store_id: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          connection_id: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          last_error?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          lease_token?: string | null
+          max_attempts?: number
+          message_id: string
+          status?: string
+          store_id: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          connection_id?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          last_error?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          lease_token?: string | null
+          max_attempts?: number
+          message_id?: string
+          status?: string
+          store_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_jobs_store_connection_fkey"
+            columns: ["store_id", "connection_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_connections"
+            referencedColumns: ["store_id", "id"]
+          },
+          {
+            foreignKeyName: "whatsapp_jobs_store_message_fkey"
+            columns: ["store_id", "message_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_messages"
+            referencedColumns: ["store_id", "id"]
+          },
+          {
+            foreignKeyName: "whatsapp_jobs_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_outbox: {
+        Row: {
+          attempts: number
+          available_at: string
+          body: string
+          connection_id: string
+          conversation_id: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          last_error: string | null
+          lease_expires_at: string | null
+          lease_owner: string | null
+          lease_token: string | null
+          provider_message_id: string | null
+          recipient: string
+          status: string
+          store_id: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          body: string
+          connection_id: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          last_error?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          lease_token?: string | null
+          provider_message_id?: string | null
+          recipient: string
+          status?: string
+          store_id: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          body?: string
+          connection_id?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          last_error?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          lease_token?: string | null
+          provider_message_id?: string | null
+          recipient?: string
+          status?: string
+          store_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_outbox_store_connection_fkey"
+            columns: ["store_id", "connection_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_connections"
+            referencedColumns: ["store_id", "id"]
+          },
+          {
+            foreignKeyName: "whatsapp_outbox_store_conversation_fkey"
+            columns: ["store_id", "conversation_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_conversations"
+            referencedColumns: ["store_id", "id"]
+          },
+          {
+            foreignKeyName: "whatsapp_outbox_store_id_fkey"
             columns: ["store_id"]
             isOneToOne: false
             referencedRelation: "stores"
@@ -1578,8 +1756,104 @@ export type Database = {
       }
     }
     Functions: {
+      close_cash_session_with_audit: {
+        Args: {
+          p_counted_amount: number
+          p_idempotency_key?: string
+          p_notes?: string
+          p_request_id?: string
+          p_session_id: string
+          p_store_id: string
+        }
+        Returns: string
+      }
       close_cash_session: {
         Args: { p_counted_amount: number; p_idempotency_key?: string; p_notes?: string; p_session_id: string; p_store_id: string }
+        Returns: string
+      }
+      claim_whatsapp_jobs: {
+        Args: { p_lease_owner: string; p_lease_seconds?: number; p_limit?: number; p_store_id: string }
+        Returns: Database["public"]["Tables"]["whatsapp_jobs"]["Row"][]
+      }
+      claim_whatsapp_outbox: {
+        Args: { p_lease_owner: string; p_lease_seconds?: number; p_limit?: number; p_store_id: string }
+        Returns: Database["public"]["Tables"]["whatsapp_outbox"]["Row"][]
+      }
+      finalize_whatsapp_job: {
+        Args: {
+          p_error_code?: string | null
+          p_job_id: string
+          p_lease_token: string
+          p_outcome: string
+          p_retry_seconds?: number
+          p_store_id: string
+        }
+        Returns: boolean
+      }
+      finalize_whatsapp_outbox: {
+        Args: {
+          p_error_code?: string | null
+          p_outbox_id: string
+          p_outcome: string
+          p_provider_message_id?: string | null
+          p_lease_token: string
+          p_retry_seconds?: number
+          p_store_id: string
+        }
+        Returns: boolean
+      }
+      enqueue_whatsapp_inbound: {
+        Args: {
+          p_body: string
+          p_connection_id: string
+          p_contact_name: string | null
+          p_external_message_id: string
+          p_received_at: string
+          p_sender_id: string
+          p_store_id: string
+        }
+        Returns: {
+          inserted: boolean
+          job_id: string
+          message_id: string
+        }[]
+      }
+      create_category_with_audit: {
+        Args: {
+          p_description?: string
+          p_name: string
+          p_parent_id?: string
+          p_request_id?: string
+          p_store_id: string
+        }
+        Returns: string
+      }
+      create_customer_with_audit: {
+        Args: {
+          p_address?: string
+          p_email?: string
+          p_name: string
+          p_notes?: string
+          p_phone_e164?: string
+          p_request_id?: string
+          p_store_id: string
+          p_tax_number?: string
+        }
+        Returns: string
+      }
+      create_product_with_audit: {
+        Args: {
+          p_category_id?: string
+          p_cost_price?: number
+          p_min_stock?: number
+          p_name: string
+          p_opening_quantity?: number
+          p_request_id?: string
+          p_sale_price: number
+          p_sku?: string
+          p_store_id: string
+          p_unit?: string
+        }
         Returns: string
       }
       create_product_with_opening_stock: {
@@ -1596,6 +1870,18 @@ export type Database = {
         }
         Returns: string
       }
+      create_purchase_with_audit: {
+        Args: {
+          p_idempotency_key?: string
+          p_items: Json
+          p_notes?: string
+          p_request_id?: string
+          p_store_id: string
+          p_supplier_id?: string
+          p_supplier_reference?: string
+        }
+        Returns: string
+      }
       create_purchase_with_receipt: {
         Args: {
           p_idempotency_key?: string
@@ -1604,6 +1890,19 @@ export type Database = {
           p_store_id: string
           p_supplier_id?: string
           p_supplier_reference?: string
+        }
+        Returns: string
+      }
+      create_sale_with_audit: {
+        Args: {
+          p_customer_id?: string
+          p_idempotency_key?: string
+          p_items: Json
+          p_notes?: string
+          p_paid_amount?: number
+          p_payment_method: Database["public"]["Enums"]["payment_method"]
+          p_request_id?: string
+          p_store_id: string
         }
         Returns: string
       }
@@ -1619,6 +1918,20 @@ export type Database = {
         }
         Returns: string
       }
+      create_supplier_with_audit: {
+        Args: {
+          p_address?: string
+          p_email?: string
+          p_name: string
+          p_notes?: string
+          p_phone_e164?: string
+          p_request_id?: string
+          p_store_id: string
+          p_tax_number?: string
+        }
+        mark_expired_whatsapp_outbox_unknown: { Args: { p_store_id: string }; Returns: number }
+        Returns: string
+      }
       create_store_for_current_user: {
         Args: { p_name: string }
         Returns: string
@@ -1631,17 +1944,91 @@ export type Database = {
         }
         Returns: boolean
       }
+      open_cash_session_with_audit: {
+        Args: {
+          p_idempotency_key?: string
+          p_notes?: string
+          p_opening_amount: number
+          p_register_id: string
+          p_request_id?: string
+          p_store_id: string
+        }
+        Returns: string
+      }
       open_cash_session: {
         Args: { p_idempotency_key?: string; p_notes?: string; p_opening_amount: number; p_register_id: string; p_store_id: string }
+        Returns: string
+      }
+      record_cash_expense_with_audit: {
+        Args: {
+          p_amount: number
+          p_category: string
+          p_description: string
+          p_idempotency_key?: string
+          p_notes?: string
+          p_request_id?: string
+          p_session_id: string
+          p_store_id: string
+        }
+        Returns: string
+      }
+      record_cash_movement_with_audit: {
+        Args: {
+          p_amount: number
+          p_description: string
+          p_direction: string
+          p_idempotency_key?: string
+          p_movement_type: string
+          p_request_id?: string
+          p_session_id: string
+          p_store_id: string
+        }
         Returns: string
       }
       record_cash_expense: {
         Args: { p_amount: number; p_category: string; p_description: string; p_idempotency_key?: string; p_notes?: string; p_session_id: string; p_store_id: string }
         Returns: string
       }
+      record_stock_entry_with_audit: {
+        Args: {
+          p_location_id: string
+          p_movement_type: Database["public"]["Enums"]["stock_movement_type"]
+          p_notes?: string
+          p_product_id: string
+          p_quantity: number
+          p_request_id?: string
+          p_store_id: string
+          p_unit_cost?: number
+        }
+        reap_expired_whatsapp_jobs: { Args: { p_store_id: string }; Returns: number }
+        Returns: string
+      }
       record_cash_movement: {
         Args: { p_amount: number; p_description: string; p_direction: string; p_idempotency_key?: string; p_movement_type: string; p_session_id: string; p_store_id: string }
         Returns: string
+      }
+      write_audit_log: {
+        Args: {
+          p_action: string
+          p_entity_id?: string
+          p_entity_type: string
+          p_metadata?: Json
+          p_request_id?: string
+          p_store_id: string
+        }
+        Returns: number
+      }
+      write_operation_audit_log: {
+        Args: {
+          p_action: string
+          p_entity_id: string
+          p_entity_type: string
+          p_idempotency_key: string
+          p_metadata: Json
+          p_request_id: string
+          p_store_id: string
+        }
+        Returns: number
       }
     }
     Enums: {
