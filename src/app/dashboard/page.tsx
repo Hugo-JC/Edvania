@@ -43,13 +43,15 @@ export default async function DashboardPage() {
                   <>
                     <Link className="quiet-button" href={`/sales?store=${store.id}`}>Registar vendas</Link>
                     <Link className="quiet-button" href={`/purchases?store=${store.id}`}>Registar compras</Link>
+                    <Link className="quiet-button" href={`/cash?store=${store.id}`}>Caixa</Link>
+                    <Link className="quiet-button" href={`/whatsapp?store=${store.id}`}>WhatsApp</Link>
                   </>
                 )}
               </div>
             </article>
           ))}
         </div>
-        <p className="muted">Próxima etapa: configurar produtos, stock e movimentos de caixa.</p>
+        <p className="muted">Gere produtos, stock, vendas, compras, caixa e o canal sandbox WhatsApp a partir do painel.</p>
       </section>
     </main>
   );

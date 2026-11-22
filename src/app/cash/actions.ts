@@ -60,3 +60,33 @@ export async function closeCashSession(formData: FormData) {
     p_idempotency_key: parsed.data.idempotencyKey,
   }), parsed.data.storeId);
 }
+
+export async function recordCashExpense(formData: FormData) {
+  const parsed = z.object({
+    storeId: uuid,
+    sessionId: uuid,
+    amount: money.refine((value) => value > 0),
+    description: z.string().trim().min(1).max(500),
+    category: z.string().trim().max(100).optional(),
+    notes: z.string().trim().max(500).optional(),
+    idempotencyKey: uuid,
+  }).safeParse({
+    storeId: formData.get("storeId"),
+    sessionId: formData.get("sessionId"),
+    amount: formData.get("amount"),
+    description: formData.get("description"),
+    category: formData.get("category") ?? "",
+    notes: formData.get("notes") ?? "",
+    idempotencyKey: formData.get("idempotencyKey"),
+  });
+  if (!parsed.success) redirect("/dashboard?error=invalid-cash-expense");
+  await callCashRpc((supabase) => supabase.rpc("record_cash_expense_with_audit", {
+    p_store_id: parsed.data.storeId,
+    p_session_id: parsed.data.sessionId,
+    p_amount: parsed.data.amount,
+    p_description: parsed.data.description,
+    p_category: parsed.data.category ?? "",
+    p_notes: parsed.data.notes || undefined,
+    p_idempotency_key: parsed.data.idempotencyKey,
+  }), parsed.data.storeId);
+}
