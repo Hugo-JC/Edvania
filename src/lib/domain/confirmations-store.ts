@@ -1,9 +1,19 @@
 import type {ConfirmationStore, ConsumeConfirmation, PendingConfirmation} from "./confirmations.ts";
 
+const MAX_CONFIRMATION_RECORDS = 2_000;
+
 export class InMemoryConfirmationStore implements ConfirmationStore {
   private readonly records = new Map<string, PendingConfirmation>();
 
   async createPending(record: PendingConfirmation): Promise<void> {
+    if (this.records.size >= MAX_CONFIRMATION_RECORDS) {
+      this.pruneExpired();
+    }
+    while (this.records.size >= MAX_CONFIRMATION_RECORDS) {
+      const oldestKey = this.records.keys().next().value;
+      if (!oldestKey) break;
+      this.records.delete(oldestKey);
+    }
     this.records.set(record.tokenHash, record);
   }
 

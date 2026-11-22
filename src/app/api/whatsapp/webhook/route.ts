@@ -143,6 +143,12 @@ export async function POST(request: NextRequest) {
             updated_at: now,
           };
           mockDb.whatsapp_conversations.push(conversation);
+        } else {
+          conversation.last_message_at = now;
+          conversation.updated_at = now;
+          if (!conversation.contact_name && message.contactName) {
+            conversation.contact_name = message.contactName;
+          }
         }
         const messageId = crypto.randomUUID();
         mockDb.whatsapp_messages.push({

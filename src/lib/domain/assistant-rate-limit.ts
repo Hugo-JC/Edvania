@@ -56,6 +56,18 @@ export class InMemoryTenantRateLimiter implements AssistantRateLimiter {
     bucket.timestamps.push(nowMs);
     this.userBuckets.set(userKey, bucket);
     this.storeDaily.set(tenantId, {dayKey, count: currentDailyCount + 1});
+
+    if (this.userBuckets.size > 5_000) {
+      for (const [key, entry] of this.userBuckets.entries()) {
+        entry.timestamps = entry.timestamps.filter((ts) => ts > cutoff);
+        if (entry.timestamps.length === 0) this.userBuckets.delete(key);
+      }
+    }
+    if (this.storeDaily.size > 2_000) {
+      for (const [key, entry] of this.storeDaily.entries()) {
+        if (entry.dayKey !== dayKey) this.storeDaily.delete(key);
+      }
+    }
     return true;
   }
 }

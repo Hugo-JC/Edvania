@@ -189,7 +189,7 @@ export default async function WhatsAppPage({searchParams}: Props) {
             </div>
           )}
 
-          <div className="store-actions" style={{marginTop: 16}}>
+          <div className="store-actions mt-4">
             {(snapshot.status === "disconnected" || snapshot.status === "logged_out" || snapshot.status === "error") && (
               <form action={connectSandboxSession}>
                 <input type="hidden" name="storeId" value={storeId} />
@@ -356,7 +356,7 @@ export default async function WhatsAppPage({searchParams}: Props) {
                   </tbody>
                 </table>
               </div>
-              <div className="store-actions" style={{marginTop: 16}}>
+              <div className="store-actions mt-4">
                 {page > 1 && (
                   <Link className="quiet-button" href={`/whatsapp?store=${storeId}&page=${page - 1}`}>
                     Página anterior
@@ -409,7 +409,7 @@ export default async function WhatsAppPage({searchParams}: Props) {
             <h2>Fila Outbox</h2>
             <span>{outboxItems?.length ?? 0} registos</span>
           </div>
-          <form action={dispatchPendingOutbox} style={{marginBottom: 14}}>
+          <form action={dispatchPendingOutbox} className="mb-3.5">
             <input type="hidden" name="storeId" value={storeId} />
             <button className="quiet-button" type="submit">Processar fila outbox</button>
           </form>

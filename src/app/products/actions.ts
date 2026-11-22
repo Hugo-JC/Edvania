@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { authorizeStoreAction } from "@/lib/supabase/store-auth";
 
 const productSchema = z.object({
   storeId: z.string().uuid(),
@@ -35,9 +35,7 @@ export async function createProduct(formData: FormData) {
   });
   if (!parsed.success) redirect("/dashboard?error=invalid-product");
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const { supabase } = await authorizeStoreAction(parsed.data.storeId, ["owner", "admin", "manager"]);
 
   const { error } = await supabase.rpc("create_product_with_audit", {
     p_store_id: parsed.data.storeId,
@@ -62,9 +60,7 @@ export async function createCategory(formData: FormData) {
   });
   if (!parsed.success) redirect("/dashboard?error=invalid-category");
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const { supabase } = await authorizeStoreAction(parsed.data.storeId, ["owner", "admin", "manager"]);
 
   const { error } = await supabase.rpc("create_category_with_audit", {
     p_store_id: parsed.data.storeId,

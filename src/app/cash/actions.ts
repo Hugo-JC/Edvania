@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { authorizeStoreAction } from "@/lib/supabase/store-auth";
+import type { createClient } from "@/lib/supabase/server";
 
 const uuid = z.string().uuid();
 const money = z.coerce.number().finite().min(0).refine((value) => Math.round(value * 100) === value * 100, "invalid amount");
@@ -11,9 +12,7 @@ async function callCashRpc(
   run: (supabase: Awaited<ReturnType<typeof createClient>>) => PromiseLike<{ error: { message: string } | null }>,
   storeId: string,
 ) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const { supabase } = await authorizeStoreAction(storeId, ["owner", "admin", "manager"]);
   const { error } = await run(supabase);
   if (error) redirect(`/cash?store=${storeId}&error=operation-failed`);
   redirect(`/cash?store=${storeId}&saved=1`);

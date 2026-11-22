@@ -91,6 +91,7 @@ export async function simulateInboundSandboxMessage(formData: FormData) {
 
   const {user} = await authorizeWhatsAppOperator(parsed.data.storeId);
   const runtime = getSandboxWhatsAppRuntime();
+  let redirectTarget = `/whatsapp?store=${parsed.data.storeId}&error=simulation-failed`;
   try {
     const result = await runtime.simulateInboundAndReply({
       storeId: parsed.data.storeId,
@@ -100,10 +101,11 @@ export async function simulateInboundSandboxMessage(formData: FormData) {
       contactName: parsed.data.contactName,
       body: parsed.data.body,
     });
-    redirect(`/whatsapp?store=${parsed.data.storeId}&notice=simulated&outbox=${result.outboxStatus}`);
+    redirectTarget = `/whatsapp?store=${parsed.data.storeId}&notice=simulated&outbox=${result.outboxStatus}`;
   } catch {
-    redirect(`/whatsapp?store=${parsed.data.storeId}&error=simulation-failed`);
+    redirectTarget = `/whatsapp?store=${parsed.data.storeId}&error=simulation-failed`;
   }
+  redirect(redirectTarget);
 }
 
 export async function dispatchPendingOutbox(formData: FormData) {
@@ -118,6 +120,7 @@ export async function dispatchPendingOutbox(formData: FormData) {
   const {createServerWhatsAppOutboxStore} = await import("@/lib/whatsapp/outbox-store.server");
   const {dispatchOutboxBatch} = await import("@/lib/whatsapp/outbox-worker");
 
+  let redirectTarget = `/whatsapp?store=${parsed.data.storeId}&error=dispatch-failed`;
   try {
     const store = isSupabaseConfigured() && process.env.SUPABASE_SECRET_KEY?.trim()
       ? createServerWhatsAppOutboxStore()
@@ -130,10 +133,11 @@ export async function dispatchPendingOutbox(formData: FormData) {
       runtime.createOutboxSender(),
       {limit: 20, leaseSeconds: 60},
     );
-    redirect(`/whatsapp?store=${parsed.data.storeId}&notice=dispatched&claimed=${batch.claimed}`);
+    redirectTarget = `/whatsapp?store=${parsed.data.storeId}&notice=dispatched&claimed=${batch.claimed}`;
   } catch {
-    redirect(`/whatsapp?store=${parsed.data.storeId}&error=dispatch-failed`);
+    redirectTarget = `/whatsapp?store=${parsed.data.storeId}&error=dispatch-failed`;
   }
+  redirect(redirectTarget);
 }
 
 export async function prepareAssistedSale(formData: FormData) {
@@ -178,6 +182,7 @@ export async function prepareAssistedSale(formData: FormData) {
     paidAmount: parsed.data.paidAmount,
   };
 
+  let redirectTarget = `/whatsapp?store=${parsed.data.storeId}&error=invalid-preview`;
   try {
     const prepared = await prepareOperationConfirmation(
       context,
@@ -197,10 +202,11 @@ export async function prepareAssistedSale(formData: FormData) {
       summary: prepared.summary,
       expiresAt: prepared.expiresAt,
     });
-    redirect(`/whatsapp?store=${parsed.data.storeId}&draft=${draftId}`);
+    redirectTarget = `/whatsapp?store=${parsed.data.storeId}&draft=${draftId}`;
   } catch {
-    redirect(`/whatsapp?store=${parsed.data.storeId}&error=invalid-preview`);
+    redirectTarget = `/whatsapp?store=${parsed.data.storeId}&error=invalid-preview`;
   }
+  redirect(redirectTarget);
 }
 
 export async function confirmAssistedOperation(formData: FormData) {
@@ -226,6 +232,7 @@ export async function confirmAssistedOperation(formData: FormData) {
     redirect(`/whatsapp?store=${parsed.data.storeId}&error=confirm-expired`);
   }
 
+  let redirectTarget = `/whatsapp?store=${parsed.data.storeId}&error=confirm-failed`;
   try {
     const result = await confirmOperationWithRecovery(
       draft.context,
@@ -238,14 +245,14 @@ export async function confirmAssistedOperation(formData: FormData) {
       getSharedConfirmationRecoveryStore(),
     );
     draftStore.deleteForContext(parsed.data.draftId, parsed.data.storeId, user.id);
-    if (!result.ok) {
-      redirect(`/whatsapp?store=${parsed.data.storeId}&error=confirm-failed`);
-    }
-    redirect(`/whatsapp?store=${parsed.data.storeId}&notice=confirmed`);
+    redirectTarget = result.ok
+      ? `/whatsapp?store=${parsed.data.storeId}&notice=confirmed`
+      : `/whatsapp?store=${parsed.data.storeId}&error=confirm-failed`;
   } catch {
     draftStore.deleteForContext(parsed.data.draftId, parsed.data.storeId, user.id);
-    redirect(`/whatsapp?store=${parsed.data.storeId}&error=confirm-failed`);
+    redirectTarget = `/whatsapp?store=${parsed.data.storeId}&error=confirm-failed`;
   }
+  redirect(redirectTarget);
 }
 
 export async function cancelAssistedOperation(formData: FormData) {

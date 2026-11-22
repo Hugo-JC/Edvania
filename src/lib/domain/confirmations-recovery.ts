@@ -18,6 +18,9 @@ export interface ConfirmationResultRecoveryStore {
   saveResult(key: string, result: DomainResult<unknown>, expiresAtMs: number): Promise<void>;
 }
 
+const MAX_RECOVERY_RECORDS = 2_000;
+const MAX_DRAFT_RECORDS = 1_000;
+
 export class InMemoryConfirmationRecoveryStore implements ConfirmationResultRecoveryStore {
   private readonly results = new Map<string, RecoveredConfirmationRecord>();
 
@@ -32,6 +35,17 @@ export class InMemoryConfirmationRecoveryStore implements ConfirmationResultReco
   }
 
   async saveResult(key: string, result: DomainResult<unknown>, expiresAtMs: number): Promise<void> {
+    const nowMs = Date.now();
+    if (this.results.size >= MAX_RECOVERY_RECORDS) {
+      for (const [k, v] of this.results.entries()) {
+        if (v.expiresAtMs <= nowMs) this.results.delete(k);
+      }
+      while (this.results.size >= MAX_RECOVERY_RECORDS) {
+        const oldest = this.results.keys().next().value;
+        if (!oldest) break;
+        this.results.delete(oldest);
+      }
+    }
     this.results.set(key, {result, expiresAtMs});
   }
 }
@@ -86,6 +100,17 @@ export class InMemoryConfirmationDraftStore {
   private readonly drafts = new Map<string, ConfirmationDraftRecord>();
 
   save(draft: ConfirmationDraftRecord): void {
+    const nowMs = Date.now();
+    if (this.drafts.size >= MAX_DRAFT_RECORDS) {
+      for (const [k, v] of this.drafts.entries()) {
+        if (Date.parse(v.expiresAt) <= nowMs) this.drafts.delete(k);
+      }
+      while (this.drafts.size >= MAX_DRAFT_RECORDS) {
+        const oldest = this.drafts.keys().next().value;
+        if (!oldest) break;
+        this.drafts.delete(oldest);
+      }
+    }
     this.drafts.set(draft.draftId, draft);
   }
 

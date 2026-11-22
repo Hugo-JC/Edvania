@@ -9,9 +9,21 @@ export type MockUserSession = {
   full_name: string;
 };
 
+type MockUserAccount = {
+  id: string;
+  email: string;
+  full_name: string;
+  salt: string;
+  passwordHash: string;
+  emailConfirmed: boolean;
+  createdAt: string;
+};
+
 type RowRecord = Record<string, unknown>;
 
 type MockDb = {
+  user_accounts: MockUserAccount[];
+  idempotency_keys: Record<string, string>;
   stores: RowRecord[];
   store_memberships: RowRecord[];
   user_profiles: RowRecord[];
@@ -42,6 +54,8 @@ const globalStore = globalThis as unknown as { __edvaniaMockDb?: MockDb };
 export function getMockDb(): MockDb {
   if (!globalStore.__edvaniaMockDb) {
     globalStore.__edvaniaMockDb = {
+      user_accounts: [],
+      idempotency_keys: {},
       stores: [],
       store_memberships: [],
       user_profiles: [],
@@ -93,6 +107,61 @@ function deterministicUserId(email: string): string {
   return `${hex1}-${hex2.slice(0, 4)}-4${hex2.slice(5, 8)}-8${hex1.slice(1, 4)}-${hex1}${hex2.slice(0, 4)}`;
 }
 
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
+  const buffer = new ArrayBuffer(hex.length / 2);
+  const out = new Uint8Array(buffer);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+function constantTimeHexEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function hashPasswordWithSalt(password: string, saltHex: string): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  const encoder = new TextEncoder();
+  if (subtle) {
+    const keyMaterial = await subtle.importKey(
+      "raw",
+      encoder.encode(password),
+      { name: "PBKDF2" },
+      false,
+      ["deriveBits"],
+    );
+    const derived = await subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: hexToBytes(saltHex),
+        iterations: 100_000,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      256,
+    );
+    return bytesToHex(new Uint8Array(derived));
+  }
+  // Fallback only if subtle unavailable
+  return `${saltHex}:${encoder.encode(password).length}`;
+}
+
+function randomSaltHex(): string {
+  const buf = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(buf);
+  return bytesToHex(buf);
+}
+
 export type CookieAdapter = {
   getSession: () => MockUserSession | null;
   setSession: (session: MockUserSession | null) => void;
@@ -125,12 +194,12 @@ type QueryResult<T> = { data: T; error: { message: string } | null; count?: numb
 
 function matchesIlike(field: unknown, pattern: string): boolean {
   const text = String(field ?? "").toLowerCase();
-  const clean = pattern.replace(/%/g, "").toLowerCase();
+  const clean = pattern.replace(/[%_\\]/g, "").toLowerCase();
   if (!clean) return true;
   return text.includes(clean);
 }
 
-function createQueryBuilder(tableName: string, db: MockDb) {
+function createQueryBuilder(tableName: string, db: MockDb, cookies: CookieAdapter) {
   const filters: QueryFilter[] = [];
   let orderBy: { column: string; ascending: boolean } | null = null;
   let limitCount: number | null = null;
@@ -145,11 +214,30 @@ function createQueryBuilder(tableName: string, db: MockDb) {
     return Array.isArray(table) ? (table as RowRecord[]) : [];
   };
 
+  const getAllowedStoreIds = (userId: string): Set<string> => {
+    return new Set(
+      db.store_memberships
+        .filter((m) => m.user_id === userId && m.status === "active")
+        .map((m) => String(m.store_id)),
+    );
+  };
+
   const execute = (): QueryResult<unknown> => {
+    const session = cookies.getSession();
+    if (!session) {
+      return { data: singleMode === "none" ? [] : null, error: { message: "not_authenticated" } };
+    }
+
     if (upsertPayload) {
+      if (tableName !== "user_profiles") {
+        return { data: null, error: { message: "forbidden" } };
+      }
       const target = tableRows();
       const conflictKey = upsertPayload.onConflict ?? "id";
       for (const row of upsertPayload.rows) {
+        if (row.id !== session.id) {
+          return { data: null, error: { message: "forbidden" } };
+        }
         const idx = target.findIndex((existing) => existing[conflictKey] === row[conflictKey]);
         if (idx >= 0) {
           target[idx] = { ...target[idx], ...row };
@@ -160,7 +248,22 @@ function createQueryBuilder(tableName: string, db: MockDb) {
       return { data: upsertPayload.rows, error: null };
     }
 
+    const allowedStoreIds = getAllowedStoreIds(session.id);
     let rows = [...tableRows()];
+
+    // Enforce tenant isolation mirroring Postgres RLS in mock mode
+    if (tableName === "stores") {
+      rows = rows.filter((row) => allowedStoreIds.has(String(row.id)));
+    } else if (tableName === "store_memberships") {
+      rows = rows.filter(
+        (row) => row.user_id === session.id || allowedStoreIds.has(String(row.store_id)),
+      );
+    } else if (tableName === "user_profiles") {
+      rows = rows.filter((row) => row.id === session.id);
+    } else if (tableName !== "user_accounts") {
+      rows = rows.filter((row) => allowedStoreIds.has(String(row.store_id)));
+    }
+
     for (const filter of filters) {
       if (filter.type === "eq") {
         rows = rows.filter((row) => row[filter.column] === filter.value);
@@ -261,6 +364,24 @@ function createQueryBuilder(tableName: string, db: MockDb) {
   return builder;
 }
 
+function checkStoreRole(
+  db: MockDb,
+  storeId: string,
+  userId: string,
+  allowedRoles: readonly string[],
+): { ok: true } | { ok: false; message: string } {
+  const membership = db.store_memberships.find(
+    (m) => m.store_id === storeId && m.user_id === userId && m.status === "active",
+  );
+  if (!membership) {
+    return { ok: false, message: "store_access_denied" };
+  }
+  if (!allowedRoles.includes(String(membership.role))) {
+    return { ok: false, message: "insufficient_store_role" };
+  }
+  return { ok: true };
+}
+
 export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient<Database> {
   const db = getMockDb();
 
@@ -285,12 +406,35 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           error: null,
         };
       },
-      async signUp(params: { email: string; password: string; options?: { data?: { full_name?: string } } }) {
+      async signUp(params: { email: string; password: string; options?: { data?: { full_name?: string }; emailRedirectTo?: string } }) {
         const email = params.email.trim().toLowerCase();
-        const session: MockUserSession = {
-          id: deterministicUserId(email),
+        const existing = db.user_accounts.find((u) => u.email === email);
+        if (existing) {
+          return {
+            data: { user: null, session: null },
+            error: { message: "User already registered" },
+          };
+        }
+
+        const salt = randomSaltHex();
+        const passwordHash = await hashPasswordWithSalt(params.password, salt);
+        const fullName = params.options?.data?.full_name?.trim() ?? "";
+        const userId = deterministicUserId(email);
+        const account: MockUserAccount = {
+          id: userId,
           email,
-          full_name: params.options?.data?.full_name?.trim() ?? "",
+          full_name: fullName,
+          salt,
+          passwordHash,
+          emailConfirmed: true,
+          createdAt: new Date().toISOString(),
+        };
+        db.user_accounts.push(account);
+
+        const session: MockUserSession = {
+          id: account.id,
+          email: account.email,
+          full_name: account.full_name,
         };
         cookies.setSession(session);
         return {
@@ -299,6 +443,7 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
               id: session.id,
               email: session.email,
               user_metadata: { full_name: session.full_name },
+              identities: [{ id: session.id }],
             },
             session: { access_token: "mock-session-token", user: { id: session.id, email: session.email } },
           },
@@ -307,18 +452,50 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
       },
       async signInWithPassword(params: { email: string; password: string }) {
         const email = params.email.trim().toLowerCase();
+        const account = db.user_accounts.find((u) => u.email === email);
+        if (!account) {
+          return {
+            data: { user: null, session: null },
+            error: { message: "Invalid login credentials" },
+          };
+        }
+        const computed = await hashPasswordWithSalt(params.password, account.salt);
+        if (!constantTimeHexEqual(computed, account.passwordHash)) {
+          return {
+            data: { user: null, session: null },
+            error: { message: "Invalid login credentials" },
+          };
+        }
+
         const session: MockUserSession = {
-          id: deterministicUserId(email),
-          email,
-          full_name: "",
+          id: account.id,
+          email: account.email,
+          full_name: account.full_name,
         };
         cookies.setSession(session);
         return {
           data: {
-            user: { id: session.id, email: session.email, user_metadata: { full_name: "" } },
+            user: { id: session.id, email: session.email, user_metadata: { full_name: session.full_name } },
             session: { access_token: "mock-session-token", user: { id: session.id, email: session.email } },
           },
           error: null,
+        };
+      },
+      async resend() {
+        return { data: { user: null, session: null }, error: null };
+      },
+      async exchangeCodeForSession() {
+        const session = cookies.getSession();
+        return {
+          data: { user: session ? { id: session.id, email: session.email } : null, session: null },
+          error: session ? null : { message: "invalid_code" },
+        };
+      },
+      async verifyOtp() {
+        const session = cookies.getSession();
+        return {
+          data: { user: session ? { id: session.id, email: session.email } : null, session: null },
+          error: session ? null : { message: "invalid_token" },
         };
       },
       async signOut() {
@@ -331,7 +508,7 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
       },
     },
     from(tableName: string) {
-      return createQueryBuilder(tableName, db);
+      return createQueryBuilder(tableName, db, cookies);
     },
     async rpc(fnName: string, args: Record<string, unknown> = {}) {
       const session = cookies.getSession();
@@ -343,24 +520,28 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
         const storeId = makeUuid();
         const name = String(args.p_name ?? "Minha Loja").trim();
         const now = new Date().toISOString();
-        db.stores.push({ id: storeId, name, currency_code: "AOA" });
+        db.stores.push({ id: storeId, name, currency_code: "AOA", timezone: "Africa/Luanda" });
         db.store_memberships.push({
+          id: makeUuid(),
           store_id: storeId,
           user_id: session.id,
           role: "owner",
           status: "active",
+          created_at: now,
         });
         db.customers.push({
           id: makeUuid(),
           store_id: storeId,
           name: "Cliente Balcão",
           status: "active",
+          created_at: now,
         });
         db.suppliers.push({
           id: makeUuid(),
           store_id: storeId,
           name: "Fornecedor Principal",
           status: "active",
+          created_at: now,
         });
         db.cash_registers.push({
           id: makeUuid(),
@@ -379,34 +560,61 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           created_at: now,
           updated_at: now,
         });
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: storeId,
+          actor_user_id: session.id,
+          action: "store.created",
+          entity_type: "store",
+          entity_id: storeId,
+          created_at: now,
+        });
         return { data: storeId, error: null };
+      }
+
+      const storeId = String(args.p_store_id ?? "");
+      const authCheck = checkStoreRole(db, storeId, session.id, ["owner", "admin", "manager"]);
+      if (!authCheck.ok) {
+        return { data: null, error: { message: authCheck.message } };
+      }
+
+      const idempotencyKey = typeof args.p_idempotency_key === "string" ? args.p_idempotency_key : "";
+      if (idempotencyKey) {
+        const scopedKey = `${storeId}:${fnName}:${idempotencyKey}`;
+        const existingResult = db.idempotency_keys[scopedKey];
+        if (existingResult) {
+          return { data: existingResult, error: null };
+        }
       }
 
       if (fnName === "create_category_with_audit") {
         const categoryId = makeUuid();
+        const now = new Date().toISOString();
         db.categories.push({
           id: categoryId,
-          store_id: String(args.p_store_id),
+          store_id: storeId,
           name: String(args.p_name),
           status: "active",
+          created_at: now,
         });
         db.audit_logs.push({
           id: db.audit_logs.length + 1,
-          store_id: String(args.p_store_id),
+          store_id: storeId,
           actor_user_id: session.id,
           action: "category.created",
           entity_type: "category",
           entity_id: categoryId,
-          created_at: new Date().toISOString(),
+          created_at: now,
         });
         return { data: categoryId, error: null };
       }
 
       if (fnName === "create_customer_with_audit") {
         const customerId = makeUuid();
+        const now = new Date().toISOString();
         db.customers.push({
           id: customerId,
-          store_id: String(args.p_store_id),
+          store_id: storeId,
           name: String(args.p_name),
           phone_e164: args.p_phone_e164 ? String(args.p_phone_e164) : null,
           email: args.p_email ? String(args.p_email) : null,
@@ -414,25 +622,26 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           address: args.p_address ? String(args.p_address) : null,
           notes: args.p_notes ? String(args.p_notes) : null,
           status: "active",
-          created_at: new Date().toISOString(),
+          created_at: now,
         });
         db.audit_logs.push({
           id: db.audit_logs.length + 1,
-          store_id: String(args.p_store_id),
+          store_id: storeId,
           actor_user_id: session.id,
           action: "customer.created",
           entity_type: "customer",
           entity_id: customerId,
-          created_at: new Date().toISOString(),
+          created_at: now,
         });
         return { data: customerId, error: null };
       }
 
       if (fnName === "create_supplier_with_audit") {
         const supplierId = makeUuid();
+        const now = new Date().toISOString();
         db.suppliers.push({
           id: supplierId,
-          store_id: String(args.p_store_id),
+          store_id: storeId,
           name: String(args.p_name),
           phone_e164: args.p_phone_e164 ? String(args.p_phone_e164) : null,
           email: args.p_email ? String(args.p_email) : null,
@@ -440,24 +649,24 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           address: args.p_address ? String(args.p_address) : null,
           notes: args.p_notes ? String(args.p_notes) : null,
           status: "active",
-          created_at: new Date().toISOString(),
+          created_at: now,
         });
         db.audit_logs.push({
           id: db.audit_logs.length + 1,
-          store_id: String(args.p_store_id),
+          store_id: storeId,
           actor_user_id: session.id,
           action: "supplier.created",
           entity_type: "supplier",
           entity_id: supplierId,
-          created_at: new Date().toISOString(),
+          created_at: now,
         });
         return { data: supplierId, error: null };
       }
 
       if (fnName === "create_product_with_audit") {
         const productId = makeUuid();
-        const storeId = String(args.p_store_id);
         const openingQuantity = Number(args.p_opening_quantity ?? 0);
+        const now = new Date().toISOString();
         db.products.push({
           id: productId,
           store_id: storeId,
@@ -470,6 +679,7 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           category_id: args.p_category_id ? String(args.p_category_id) : null,
           status: "active",
           track_stock: true,
+          created_at: now,
         });
         db.inventory_balances.push({
           store_id: storeId,
@@ -477,11 +687,19 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           location_id: storeId,
           quantity_on_hand: openingQuantity,
         });
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: storeId,
+          actor_user_id: session.id,
+          action: "product.created",
+          entity_type: "product",
+          entity_id: productId,
+          created_at: now,
+        });
         return { data: productId, error: null };
       }
 
       if (fnName === "create_sale_with_audit") {
-        const storeId = String(args.p_store_id);
         const items = Array.isArray(args.p_items)
           ? (args.p_items as { product_id: string; quantity: number }[])
           : [];
@@ -490,6 +708,9 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
         }
         let total = 0;
         for (const item of items) {
+          if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+            return { data: null, error: { message: "invalid_quantity" } };
+          }
           const product = db.products.find(
             (p) => p.id === item.product_id && p.store_id === storeId,
           );
@@ -535,11 +756,22 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
             status: "confirmed",
           });
         }
+        if (idempotencyKey) {
+          db.idempotency_keys[`${storeId}:${fnName}:${idempotencyKey}`] = saleId;
+        }
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: storeId,
+          actor_user_id: session.id,
+          action: "sale.created",
+          entity_type: "sale",
+          entity_id: saleId,
+          created_at: now,
+        });
         return { data: saleId, error: null };
       }
 
       if (fnName === "create_purchase_with_audit") {
-        const storeId = String(args.p_store_id);
         const items = Array.isArray(args.p_items)
           ? (args.p_items as { product_id: string; quantity: number; unit_cost: number }[])
           : [];
@@ -548,6 +780,9 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
         }
         let total = 0;
         for (const item of items) {
+          if (!Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unit_cost) || item.unit_cost < 0) {
+            return { data: null, error: { message: "invalid_quantity" } };
+          }
           const product = db.products.find(
             (p) => p.id === item.product_id && p.store_id === storeId,
           );
@@ -584,12 +819,27 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           supplier_id: args.p_supplier_id ? String(args.p_supplier_id) : null,
           supplier_reference: args.p_supplier_reference ? String(args.p_supplier_reference) : null,
         });
+        if (idempotencyKey) {
+          db.idempotency_keys[`${storeId}:${fnName}:${idempotencyKey}`] = purchaseId;
+        }
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: storeId,
+          actor_user_id: session.id,
+          action: "purchase.created",
+          entity_type: "purchase",
+          entity_id: purchaseId,
+          created_at: now,
+        });
         return { data: purchaseId, error: null };
       }
 
       if (fnName === "open_cash_session_with_audit") {
-        const storeId = String(args.p_store_id);
         const registerId = String(args.p_register_id);
+        const register = db.cash_registers.find((r) => r.id === registerId && r.store_id === storeId);
+        if (!register) {
+          return { data: null, error: { message: "cash_register_not_found" } };
+        }
         const existingOpen = db.cash_sessions.find(
           (s) => s.store_id === storeId && s.register_id === registerId && s.closed_at == null,
         );
@@ -611,11 +861,22 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           notes: args.p_notes ? String(args.p_notes) : null,
           opened_by: session.id,
         });
+        if (idempotencyKey) {
+          db.idempotency_keys[`${storeId}:${fnName}:${idempotencyKey}`] = sessionId;
+        }
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: storeId,
+          actor_user_id: session.id,
+          action: "cash_session.opened",
+          entity_type: "cash_session",
+          entity_id: sessionId,
+          created_at: now,
+        });
         return { data: sessionId, error: null };
       }
 
       if (fnName === "record_cash_movement_with_audit") {
-        const storeId = String(args.p_store_id);
         const sessionId = String(args.p_session_id);
         const cashSession = db.cash_sessions.find(
           (s) => s.id === sessionId && s.store_id === storeId && s.closed_at == null,
@@ -624,6 +885,7 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           return { data: null, error: { message: "cash_session_not_open" } };
         }
         const movementId = makeUuid();
+        const now = new Date().toISOString();
         db.cash_movements.push({
           id: movementId,
           store_id: storeId,
@@ -632,13 +894,24 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           direction: String(args.p_direction),
           amount: Number(args.p_amount ?? 0),
           description: String(args.p_description ?? ""),
-          created_at: new Date().toISOString(),
+          created_at: now,
+        });
+        if (idempotencyKey) {
+          db.idempotency_keys[`${storeId}:${fnName}:${idempotencyKey}`] = movementId;
+        }
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: storeId,
+          actor_user_id: session.id,
+          action: "cash_movement.recorded",
+          entity_type: "cash_movement",
+          entity_id: movementId,
+          created_at: now,
         });
         return { data: movementId, error: null };
       }
 
       if (fnName === "record_cash_expense_with_audit") {
-        const storeId = String(args.p_store_id);
         const sessionId = String(args.p_session_id);
         const cashSession = db.cash_sessions.find(
           (s) => s.id === sessionId && s.store_id === storeId && s.closed_at == null,
@@ -669,11 +942,22 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           description,
           created_at: now,
         });
+        if (idempotencyKey) {
+          db.idempotency_keys[`${storeId}:${fnName}:${idempotencyKey}`] = expenseId;
+        }
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: storeId,
+          actor_user_id: session.id,
+          action: "cash_expense.recorded",
+          entity_type: "expense",
+          entity_id: expenseId,
+          created_at: now,
+        });
         return { data: expenseId, error: null };
       }
 
       if (fnName === "close_cash_session_with_audit") {
-        const storeId = String(args.p_store_id);
         const sessionId = String(args.p_session_id);
         const cashSession = db.cash_sessions.find(
           (s) => s.id === sessionId && s.store_id === storeId && s.closed_at == null,
@@ -688,10 +972,23 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
         }, 0);
         const expected = Number(cashSession.opening_amount ?? 0) + delta;
         const counted = Number(args.p_counted_amount ?? 0);
-        cashSession.closed_at = new Date().toISOString();
+        const now = new Date().toISOString();
+        cashSession.closed_at = now;
         cashSession.expected_amount = expected;
         cashSession.closing_amount = counted;
         cashSession.difference_amount = Math.round((counted - expected) * 100) / 100;
+        if (idempotencyKey) {
+          db.idempotency_keys[`${storeId}:${fnName}:${idempotencyKey}`] = sessionId;
+        }
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: storeId,
+          actor_user_id: session.id,
+          action: "cash_session.closed",
+          entity_type: "cash_session",
+          entity_id: sessionId,
+          created_at: now,
+        });
         return { data: sessionId, error: null };
       }
 

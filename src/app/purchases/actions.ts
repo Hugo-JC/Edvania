@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { authorizeStoreAction } from "@/lib/supabase/store-auth";
 
 const schema = z.object({
   storeId: z.string().uuid(),
@@ -37,9 +37,7 @@ export async function createPurchase(formData: FormData) {
 
   if (items.length === 0 || items.length > 100) redirect(`/purchases?store=${parsed.data.storeId}&error=empty-purchase`);
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const { supabase } = await authorizeStoreAction(parsed.data.storeId, ["owner", "admin", "manager"]);
 
   const { error } = await supabase.rpc("create_purchase_with_audit", {
     p_store_id: parsed.data.storeId,
