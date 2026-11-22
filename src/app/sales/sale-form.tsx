@@ -75,16 +75,24 @@ export function SaleForm({ customers, idempotencyKey, products, storeId }: Props
         <label>Valor recebido (AOA)<input name="paidAmount" type="number" min="0" step="0.01" defaultValue="0" required /></label>
       </div>
       <label>Observações<input name="notes" maxLength={500} /></label>
-      {!confirmed ? <button className="primary-button" type="button" disabled={!products.length} onClick={review}>Rever venda</button> : <>
-        <section className="panel-card" aria-live="polite">
-          <h3>Confirmação necessária</h3>
-          {summary?.items.map((item) => <p key={item.name}>{item.name}: {item.quantity} — {money.format(item.total)}</p>)}
-          <p><strong>Total: {money.format(summary?.total ?? 0)}</strong></p>
-          <p>Recebido: {money.format(summary?.paid ?? 0)} · Em falta: {money.format(Math.max(0, (summary?.total ?? 0) - (summary?.paid ?? 0)))}</p>
-          <p className="muted">Confirma que o resumo está correcto. O servidor valida novamente preços, stock, permissões e totais.</p>
-        </section>
-        <button className="primary-button" type="submit">Confirmar e registar venda</button>
-      </>}
+      {!confirmed ? (
+        <div>
+          <button className="primary-button" type="button" disabled={!products.length} onClick={review}>Rever venda</button>
+        </div>
+      ) : (
+        <>
+          <div className="rounded-xl bg-[#EAF4F0] p-5" aria-live="polite">
+            <h3>Confirmação necessária</h3>
+            {summary?.items.map((item) => <p key={item.name} className="tabular">{item.name}: {item.quantity} — {money.format(item.total)}</p>)}
+            <p className="tabular"><strong>Total: {money.format(summary?.total ?? 0)}</strong></p>
+            <p className="tabular">Recebido: {money.format(summary?.paid ?? 0)} · Em falta: {money.format(Math.max(0, (summary?.total ?? 0) - (summary?.paid ?? 0)))}</p>
+            <p className="muted">Confirma que o resumo está correcto. O servidor valida novamente preços, stock, permissões e totais.</p>
+          </div>
+          <div>
+            <button className="primary-button" type="submit">Confirmar e registar venda</button>
+          </div>
+        </>
+      )}
     </form>
   );
 }

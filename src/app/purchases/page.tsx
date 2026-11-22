@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { WorkspaceShell } from "@/components/workspace-shell";
 import { createClient } from "@/lib/supabase/server";
 import { PurchaseForm } from "./purchase-form";
 
@@ -30,19 +30,21 @@ export default async function PurchasesPage({ searchParams }: Props) {
   const supplierNames = new Map((suppliers ?? []).map((supplier) => [supplier.id, supplier.name]));
 
   return (
-    <main className="dashboard-shell">
-      <header className="dashboard-header">
-        <Link className="brand" href="/dashboard">Edvânia</Link>
-        <nav className="header-actions"><Link href="/dashboard">Painel</Link><Link href={`/products?store=${storeId}`}>Produtos</Link><span>{store?.name ?? "A tua loja"}</span></nav>
-      </header>
-      <section className="dashboard-content">
-        <p className="eyebrow">COMPRAS E APROVISIONAMENTO</p>
+    <WorkspaceShell
+      active="purchases"
+      sectionTitle="Compras e Recepção"
+      storeId={storeId}
+      storeName={store?.name ?? "A tua loja"}
+      role={selected.role}
+    >
+      <div className="dashboard-content">
+        <p className="eyebrow">Compras e aprovisionamento</p>
         <h1>Registar compra.</h1>
         <p className="muted">Regista os artigos recebidos. A entrada no stock e o registo da compra são confirmados na mesma transacção.</p>
         {params.error && <p className="error" role="alert">Não foi possível registar a compra. Confirma os artigos, custos e permissões.</p>}
         {params.created && <p className="notice" role="status">Compra registada e stock actualizado.</p>}
 
-        <section className="panel-card">
+        <section className="panel-card mt-5">
           <h2>Nova compra e recepção</h2>
           <PurchaseForm
             idempotencyKey={randomUUID()}
@@ -59,18 +61,18 @@ export default async function PurchasesPage({ searchParams }: Props) {
               <thead><tr><th>Compra</th><th>Data de recepção</th><th>Fornecedor</th><th>Referência</th><th>Total</th><th>Estado</th></tr></thead>
               <tbody>{purchases.map((purchase) => (
                 <tr key={purchase.id}>
-                  <td>#{purchase.purchase_number}</td>
-                  <td>{new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(purchase.received_at ?? purchase.created_at))}</td>
+                  <td className="tabular">#{purchase.purchase_number}</td>
+                  <td className="tabular">{new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(purchase.received_at ?? purchase.created_at))}</td>
                   <td>{purchase.supplier_id ? supplierNames.get(purchase.supplier_id) ?? "Fornecedor" : "—"}</td>
-                  <td>{purchase.supplier_reference || "—"}</td>
-                  <td>{money.format(Number(purchase.total))}</td>
+                  <td className="tabular">{purchase.supplier_reference || "—"}</td>
+                  <td className="tabular">{money.format(Number(purchase.total))}</td>
                   <td>{purchase.status === "received" ? "Recebida" : purchase.status}</td>
                 </tr>
               ))}</tbody>
             </table></div>
           )}
         </section>
-      </section>
-    </main>
+      </div>
+    </WorkspaceShell>
   );
 }

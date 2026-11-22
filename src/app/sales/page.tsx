@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { WorkspaceShell } from "@/components/workspace-shell";
 import { createClient } from "@/lib/supabase/server";
 import { SaleForm } from "./sale-form";
 
@@ -41,19 +41,21 @@ export default async function SalesPage({ searchParams }: Props) {
   }
 
   return (
-    <main className="dashboard-shell">
-      <header className="dashboard-header">
-        <Link className="brand" href="/dashboard">Edvânia</Link>
-        <nav className="header-actions"><Link href="/dashboard">Painel</Link><Link href={`/products?store=${storeId}`}>Produtos</Link><span>{store?.name ?? "A tua loja"}</span></nav>
-      </header>
-      <section className="dashboard-content">
-        <p className="eyebrow">GESTÃO COMERCIAL</p>
+    <WorkspaceShell
+      active="sales"
+      sectionTitle="Vendas"
+      storeId={storeId}
+      storeName={store?.name ?? "A tua loja"}
+      role={selected.role}
+    >
+      <div className="dashboard-content">
+        <p className="eyebrow">Gestão comercial</p>
         <h1>Registar venda.</h1>
         <p className="muted">Selecciona os artigos e quantidades. Os preços e totais são calculados pelo servidor com base no catálogo.</p>
         {params.error && <p className="error" role="alert">Não foi possível registar a venda. Confirma o stock e os dados introduzidos.</p>}
         {params.created && <p className="notice" role="status">Venda registada com sucesso.</p>}
 
-        <section className="panel-card">
+        <section className="panel-card mt-5">
           <h2>Nova venda</h2>
           <SaleForm
             customers={customers ?? []}
@@ -69,17 +71,17 @@ export default async function SalesPage({ searchParams }: Props) {
             <div className="table-wrap"><table className="data-table">
               <thead><tr><th>Venda</th><th>Data</th><th>Estado</th><th>Total</th><th>Recebido</th><th>Em falta</th></tr></thead>
               <tbody>{sales.map((sale) => <tr key={sale.id}>
-                <td>#{sale.sale_number}</td>
-                <td>{new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(sale.sold_at ?? sale.created_at))}</td>
+                <td className="tabular">#{sale.sale_number}</td>
+                <td className="tabular">{new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(sale.sold_at ?? sale.created_at))}</td>
                 <td>{sale.status === "confirmed" ? "Confirmada" : sale.status}</td>
-                <td>{money.format(Number(sale.total))}</td>
-                <td>{money.format(paidBySale.get(sale.id) ?? 0)}</td>
-                <td>{money.format(Math.max(0, Number(sale.total) - (paidBySale.get(sale.id) ?? 0)))}</td>
+                <td className="tabular">{money.format(Number(sale.total))}</td>
+                <td className="tabular">{money.format(paidBySale.get(sale.id) ?? 0)}</td>
+                <td className="tabular">{money.format(Math.max(0, Number(sale.total) - (paidBySale.get(sale.id) ?? 0)))}</td>
               </tr>)}</tbody>
             </table></div>
           )}
         </section>
-      </section>
-    </main>
+      </div>
+    </WorkspaceShell>
   );
 }

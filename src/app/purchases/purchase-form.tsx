@@ -45,13 +45,22 @@ export function PurchaseForm({ idempotencyKey, products, storeId, suppliers }: P
     </table></div>
     {!products.length && <p className="muted">Adiciona produtos ao catálogo antes de registar uma compra.</p>}
     <label>Observações<input name="notes" maxLength={500} /></label>
-    {!confirmed ? <button className="primary-button" type="button" disabled={!products.length} onClick={review}>Rever compra</button> : <>
-      <section className="panel-card" aria-live="polite"><h3>Confirmação necessária</h3>
-        {summary?.items.map((item) => <p key={item.name}>{item.name}: {item.quantity} — {money.format(item.total)}</p>)}
-        <p><strong>Total: {money.format(summary?.total ?? 0)}</strong></p>
-        <p className="muted">Confirma que a mercadoria foi recebida. O servidor valida novamente fornecedores, produtos, permissões e totais.</p>
-      </section>
-      <button className="primary-button" type="submit">Confirmar compra e entrada no stock</button>
-    </>}
+    {!confirmed ? (
+      <div>
+        <button className="primary-button" type="button" disabled={!products.length} onClick={review}>Rever compra</button>
+      </div>
+    ) : (
+      <>
+        <div className="rounded-xl bg-[#EAF4F0] p-5" aria-live="polite">
+          <h3>Confirmação necessária</h3>
+          {summary?.items.map((item) => <p key={item.name} className="tabular">{item.name}: {item.quantity} — {money.format(item.total)}</p>)}
+          <p className="tabular"><strong>Total: {money.format(summary?.total ?? 0)}</strong></p>
+          <p className="muted">Confirma que a mercadoria foi recebida. O servidor valida novamente fornecedores, produtos, permissões e totais.</p>
+        </div>
+        <div>
+          <button className="primary-button" type="submit">Confirmar compra e entrada no stock</button>
+        </div>
+      </>
+    )}
   </form>;
 }

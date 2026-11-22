@@ -177,13 +177,15 @@ export function CashMovementAndCloseForms({
             </button>
           ) : (
             <>
-              <section className="panel-card" aria-live="polite">
+              <div className="rounded-xl bg-[#EAF4F0] p-5" aria-live="polite">
                 <h3>Confirmação necessária</h3>
                 <p><strong>Caixa: {registerName}</strong></p>
-                <p>Valor contado declarado: {money.format(countedPreview ?? 0)}</p>
+                <p className="tabular">Valor contado declarado: {money.format(countedPreview ?? 0)}</p>
                 <p className="muted">O servidor calcula o saldo esperado e a diferença de reconciliação na mesma transacção auditada.</p>
-              </section>
-              <button className="primary-button" type="submit">Confirmar e fechar sessão</button>
+              </div>
+              <div>
+                <button className="primary-button" type="submit">Confirmar e fechar sessão</button>
+              </div>
             </>
           )}
         </form>

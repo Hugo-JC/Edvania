@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { WorkspaceShell } from "@/components/workspace-shell";
 import { createClient } from "@/lib/supabase/server";
 import { createCategory, createProduct } from "./actions";
 
@@ -31,20 +31,22 @@ export default async function ProductsPage({ searchParams }: Props) {
   const stockByProduct = new Map((balances ?? []).map((balance) => [balance.product_id, Number(balance.quantity_on_hand ?? 0)]));
 
   return (
-    <main className="dashboard-shell">
-      <header className="dashboard-header">
-        <Link className="brand" href="/dashboard">Edvânia</Link>
-        <nav className="header-actions"><Link href="/dashboard">Painel</Link><span>{store?.name ?? "A tua loja"}</span></nav>
-      </header>
-      <section className="dashboard-content">
-        <p className="eyebrow">GESTÃO COMERCIAL</p>
+    <WorkspaceShell
+      active="products"
+      sectionTitle="Produtos e Stock"
+      storeId={storeId}
+      storeName={store?.name ?? "A tua loja"}
+      role={selected.role}
+    >
+      <div className="dashboard-content">
+        <p className="eyebrow">Gestão comercial</p>
         <h1>Produtos e stock.</h1>
         <p className="muted">Regista artigos, define preços e acompanha as quantidades disponíveis no teu armazém principal.</p>
         {params.error && <p className="error" role="alert">Não foi possível guardar. Verifica os dados e as permissões da tua conta.</p>}
         {params.created && <p className="notice" role="status">Produto criado com sucesso.</p>}
         {params.category && <p className="notice" role="status">Categoria criada com sucesso.</p>}
 
-        <section className="panel-card">
+        <section className="panel-card mt-5">
           <h2>Novo produto</h2>
           <form className="form product-form" action={createProduct}>
             <input type="hidden" name="storeId" value={storeId} />
@@ -65,7 +67,9 @@ export default async function ProductsPage({ searchParams }: Props) {
                 {categories?.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
               </select>
             </label>
-            <button className="primary-button" type="submit">Guardar produto</button>
+            <div>
+              <button className="primary-button" type="submit">Guardar produto</button>
+            </div>
           </form>
         </section>
 
@@ -90,10 +94,10 @@ export default async function ProductsPage({ searchParams }: Props) {
                     const stock = stockByProduct.get(product.id) ?? 0;
                     return <tr key={product.id}>
                       <td><strong>{product.name}</strong><small>{product.unit} · {product.status}</small></td>
-                      <td>{product.sku || "—"}</td>
-                      <td>{money.format(Number(product.sale_price))}</td>
+                      <td className="tabular">{product.sku || "—"}</td>
+                      <td className="tabular">{money.format(Number(product.sale_price))}</td>
                       <td><span className={stock <= Number(product.min_stock) ? "stock-low" : "stock-ok"}>{stock} {product.unit}</span></td>
-                      <td>{Number(product.min_stock)} {product.unit}</td>
+                      <td className="tabular">{Number(product.min_stock)} {product.unit}</td>
                     </tr>;
                   })}
                 </tbody>
@@ -101,7 +105,7 @@ export default async function ProductsPage({ searchParams }: Props) {
             </div>
           )}
         </section>
-      </section>
-    </main>
+      </div>
+    </WorkspaceShell>
   );
 }

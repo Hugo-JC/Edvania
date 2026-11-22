@@ -1,6 +1,7 @@
 import {randomUUID} from "node:crypto";
 import Link from "next/link";
 import {redirect} from "next/navigation";
+import {WorkspaceShell} from "@/components/workspace-shell";
 import {resolveConfiguredAssistantProviders} from "@/lib/domain/assistant-providers.server";
 import {getSharedConfirmationDraftStore} from "@/lib/domain/confirmations.server";
 import {createClient} from "@/lib/supabase/server";
@@ -117,17 +118,15 @@ export default async function WhatsAppPage({searchParams}: Props) {
   const totalPages = Math.max(1, Math.ceil((totalConversations ?? 0) / PAGE_SIZE));
 
   return (
-    <main className="dashboard-shell">
-      <header className="dashboard-header">
-        <Link className="brand" href="/dashboard">Edvânia</Link>
-        <nav className="header-actions">
-          <Link href="/dashboard">Painel</Link>
-          <Link href={`/products?store=${storeId}`}>Produtos</Link>
-          <span>{store?.name ?? "A tua loja"}</span>
-        </nav>
-      </header>
-      <section className="dashboard-content">
-        <p className="eyebrow">ATENDIMENTO WHATSAPP · SANDBOX</p>
+    <WorkspaceShell
+      active="whatsapp"
+      sectionTitle="WhatsApp e Assistente"
+      storeId={storeId}
+      storeName={store?.name ?? "A tua loja"}
+      role={selected.role}
+    >
+      <div className="dashboard-content">
+        <p className="eyebrow">Atendimento WhatsApp · Sandbox</p>
         <h1>Ligação e caixa de mensagens.</h1>
         <p className="muted">
           Painel operacional em modo sandbox para validar ciclo de sessão, QR efémero, recepção normalizada, assistente read-only e fila outbox sem ligar números reais.
@@ -178,16 +177,16 @@ export default async function WhatsAppPage({searchParams}: Props) {
           </p>
 
           {snapshot.status === "qr_required" && snapshot.qr && (
-            <section className="panel-card" aria-live="polite">
+            <div className="mt-4 rounded-xl bg-[#EAF4F0] p-5" aria-live="polite">
               <h3>QR Efémero (Sandbox)</h3>
               <p>Código temporário de emparelhamento: <code>{snapshot.qr}</code></p>
               <p className="muted">Expira automaticamente em 2 minutos. Nunca partilhar códigos de sessão reais.</p>
-              <form action={confirmSandboxSession}>
+              <form action={confirmSandboxSession} className="mt-3">
                 <input type="hidden" name="storeId" value={storeId} />
                 <input type="hidden" name="connectionId" value={primaryConnectionId} />
                 <button className="primary-button" type="submit">Confirmar emparelhamento sandbox</button>
               </form>
-            </section>
+            </div>
           )}
 
           <div className="store-actions" style={{marginTop: 16}}>
@@ -247,18 +246,20 @@ export default async function WhatsAppPage({searchParams}: Props) {
           </p>
 
           {pendingDraft ? (
-            <section className="panel-card" aria-live="polite" style={{marginTop: 14}}>
+            <div className="mt-4 rounded-xl bg-[#EAF4F0] p-5" aria-live="polite">
               <h3>Confirmar operação preparada</h3>
               <p><strong>Resumo:</strong> {pendingDraft.summary}</p>
               <p className="muted">
                 Expira em:{" "}
-                {new Intl.DateTimeFormat("pt-AO", {
-                  dateStyle: "short",
-                  timeStyle: "medium",
-                  timeZone: "Africa/Luanda",
-                }).format(new Date(pendingDraft.expiresAt))}
+                <span className="tabular">
+                  {new Intl.DateTimeFormat("pt-AO", {
+                    dateStyle: "short",
+                    timeStyle: "medium",
+                    timeZone: "Africa/Luanda",
+                  }).format(new Date(pendingDraft.expiresAt))}
+                </span>
               </p>
-              <div className="store-actions" style={{marginTop: 14}}>
+              <div className="store-actions mt-4">
                 <form action={confirmAssistedOperation}>
                   <input type="hidden" name="storeId" value={storeId} />
                   <input type="hidden" name="draftId" value={pendingDraft.draftId} />
@@ -270,7 +271,7 @@ export default async function WhatsAppPage({searchParams}: Props) {
                   <button className="quiet-button" type="submit">Cancelar</button>
                 </form>
               </div>
-            </section>
+            </div>
           ) : !products?.length ? (
             <p className="muted">Adiciona pelo menos um produto activo na loja para preparar uma venda assistida.</p>
           ) : (
@@ -433,7 +434,7 @@ export default async function WhatsAppPage({searchParams}: Props) {
             </div>
           )}
         </section>
-      </section>
-    </main>
+      </div>
+    </WorkspaceShell>
   );
 }

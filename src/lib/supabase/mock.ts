@@ -31,6 +31,8 @@ type MockDb = {
   whatsapp_conversations: RowRecord[];
   whatsapp_messages: RowRecord[];
   whatsapp_outbox: RowRecord[];
+  audit_logs: RowRecord[];
+  ai_usage_logs: RowRecord[];
   saleSeq: number;
   purchaseSeq: number;
 };
@@ -59,6 +61,8 @@ export function getMockDb(): MockDb {
       whatsapp_conversations: [],
       whatsapp_messages: [],
       whatsapp_outbox: [],
+      audit_logs: [],
+      ai_usage_logs: [],
       saleSeq: 1,
       purchaseSeq: 1,
     };
@@ -386,7 +390,68 @@ export function createMockSupabaseClient(cookies: CookieAdapter): SupabaseClient
           name: String(args.p_name),
           status: "active",
         });
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: String(args.p_store_id),
+          actor_user_id: session.id,
+          action: "category.created",
+          entity_type: "category",
+          entity_id: categoryId,
+          created_at: new Date().toISOString(),
+        });
         return { data: categoryId, error: null };
+      }
+
+      if (fnName === "create_customer_with_audit") {
+        const customerId = makeUuid();
+        db.customers.push({
+          id: customerId,
+          store_id: String(args.p_store_id),
+          name: String(args.p_name),
+          phone_e164: args.p_phone_e164 ? String(args.p_phone_e164) : null,
+          email: args.p_email ? String(args.p_email) : null,
+          tax_number: args.p_tax_number ? String(args.p_tax_number) : null,
+          address: args.p_address ? String(args.p_address) : null,
+          notes: args.p_notes ? String(args.p_notes) : null,
+          status: "active",
+          created_at: new Date().toISOString(),
+        });
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: String(args.p_store_id),
+          actor_user_id: session.id,
+          action: "customer.created",
+          entity_type: "customer",
+          entity_id: customerId,
+          created_at: new Date().toISOString(),
+        });
+        return { data: customerId, error: null };
+      }
+
+      if (fnName === "create_supplier_with_audit") {
+        const supplierId = makeUuid();
+        db.suppliers.push({
+          id: supplierId,
+          store_id: String(args.p_store_id),
+          name: String(args.p_name),
+          phone_e164: args.p_phone_e164 ? String(args.p_phone_e164) : null,
+          email: args.p_email ? String(args.p_email) : null,
+          tax_number: args.p_tax_number ? String(args.p_tax_number) : null,
+          address: args.p_address ? String(args.p_address) : null,
+          notes: args.p_notes ? String(args.p_notes) : null,
+          status: "active",
+          created_at: new Date().toISOString(),
+        });
+        db.audit_logs.push({
+          id: db.audit_logs.length + 1,
+          store_id: String(args.p_store_id),
+          actor_user_id: session.id,
+          action: "supplier.created",
+          entity_type: "supplier",
+          entity_id: supplierId,
+          created_at: new Date().toISOString(),
+        });
+        return { data: supplierId, error: null };
       }
 
       if (fnName === "create_product_with_audit") {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { WorkspaceShell } from "@/components/workspace-shell";
 import { createClient } from "@/lib/supabase/server";
 import { CashMovementAndCloseForms, OpenCashForm } from "./cash-forms";
 
@@ -45,45 +45,45 @@ export default async function CashPage({ searchParams }: Props) {
   const openSession = (sessions ?? []).find((session) => session.closed_at == null);
 
   return (
-    <main className="dashboard-shell">
-      <header className="dashboard-header">
-        <Link className="brand" href="/dashboard">Edvânia</Link>
-        <nav className="header-actions">
-          <Link href="/dashboard">Painel</Link>
-          <Link href={`/sales?store=${storeId}`}>Vendas</Link>
-          <span>{store?.name ?? "A tua loja"}</span>
-        </nav>
-      </header>
-      <section className="dashboard-content">
-        <p className="eyebrow">CAIXA E TESOURARIA</p>
+    <WorkspaceShell
+      active="cash"
+      sectionTitle="Caixa e Tesouraria"
+      storeId={storeId}
+      storeName={store?.name ?? "A tua loja"}
+      role={selected.role}
+    >
+      <div className="dashboard-content">
+        <p className="eyebrow">Caixa e tesouraria</p>
         <h1>Caixa e movimentos.</h1>
         <p className="muted">Abre o turno de caixa, regista reforços, levantamentos ou despesas e fecha com reconciliação auditada.</p>
         {params.error && <p className="error" role="alert">Não foi possível concluir a operação de caixa. Verifica os valores e o estado da sessão.</p>}
         {params.saved && <p className="notice" role="status">Operação de caixa registada com sucesso.</p>}
 
-        {!openSession ? (
-          <section className="panel-card">
-            <h2>Abrir sessão de caixa</h2>
-            {!registers?.length ? (
-              <p className="muted">Ainda não existe uma caixa registada nesta loja.</p>
-            ) : (
-              <OpenCashForm
-                storeId={storeId}
-                registers={registers}
-                idempotencyKey={randomUUID()}
-              />
-            )}
-          </section>
-        ) : (
-          <CashMovementAndCloseForms
-            storeId={storeId}
-            session={openSession}
-            registerName={registerNames.get(openSession.register_id) ?? "Caixa"}
-            movementKey={randomUUID()}
-            expenseKey={randomUUID()}
-            closeKey={randomUUID()}
-          />
-        )}
+        <div className="mt-5">
+          {!openSession ? (
+            <section className="panel-card">
+              <h2>Abrir sessão de caixa</h2>
+              {!registers?.length ? (
+                <p className="muted">Ainda não existe uma caixa registada nesta loja.</p>
+              ) : (
+                <OpenCashForm
+                  storeId={storeId}
+                  registers={registers}
+                  idempotencyKey={randomUUID()}
+                />
+              )}
+            </section>
+          ) : (
+            <CashMovementAndCloseForms
+              storeId={storeId}
+              session={openSession}
+              registerName={registerNames.get(openSession.register_id) ?? "Caixa"}
+              movementKey={randomUUID()}
+              expenseKey={randomUUID()}
+              closeKey={randomUUID()}
+            />
+          )}
+        </div>
 
         <section className="panel-card">
           <div className="section-heading"><h2>Sessões de caixa</h2><span>{sessions?.length ?? 0} registos</span></div>
@@ -96,12 +96,12 @@ export default async function CashPage({ searchParams }: Props) {
                 <tbody>
                   {sessions.map((session) => (
                     <tr key={session.id}>
-                      <td><strong>{registerNames.get(session.register_id) ?? "Caixa"}</strong><small>{new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(session.opened_at))}</small></td>
-                      <td>{money.format(Number(session.opening_amount))}</td>
+                      <td><strong>{registerNames.get(session.register_id) ?? "Caixa"}</strong><small className="tabular">{new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(session.opened_at))}</small></td>
+                      <td className="tabular">{money.format(Number(session.opening_amount))}</td>
                       <td>{session.closed_at ? "Fechada" : "Aberta"}</td>
-                      <td>{session.expected_amount != null ? money.format(Number(session.expected_amount)) : "—"}</td>
-                      <td>{session.closing_amount != null ? money.format(Number(session.closing_amount)) : "—"}</td>
-                      <td>{session.difference_amount != null ? money.format(Number(session.difference_amount)) : "—"}</td>
+                      <td className="tabular">{session.expected_amount != null ? money.format(Number(session.expected_amount)) : "—"}</td>
+                      <td className="tabular">{session.closing_amount != null ? money.format(Number(session.closing_amount)) : "—"}</td>
+                      <td className="tabular">{session.difference_amount != null ? money.format(Number(session.difference_amount)) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -124,8 +124,8 @@ export default async function CashPage({ searchParams }: Props) {
                       <td>{movement.description}</td>
                       <td>{movement.movement_type}</td>
                       <td>{movement.direction === "in" ? "Entrada" : "Saída"}</td>
-                      <td>{money.format(Number(movement.amount))}</td>
-                      <td>{new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(movement.created_at))}</td>
+                      <td className="tabular">{money.format(Number(movement.amount))}</td>
+                      <td className="tabular">{new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(movement.created_at))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -133,7 +133,7 @@ export default async function CashPage({ searchParams }: Props) {
             </div>
           )}
         </section>
-      </section>
-    </main>
+      </div>
+    </WorkspaceShell>
   );
 }
