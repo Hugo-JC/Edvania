@@ -8,6 +8,7 @@
 ## Checkpoint actual
 
 O incremento actual avançou as Metas F, G e H no código Next.js/TypeScript e completou o fluxo Web de Caixa (`/cash`), mantendo todas as fronteiras de segurança e sem activar WhatsApp real nem alterar base remota:
+
 - **Caixa Web (`/cash`):** criada a página operacional `src/app/cash/page.tsx`, formulários com confirmação explícita de fecho (`src/app/cash/cash-forms.tsx`), acção `recordCashExpense` em `src/app/cash/actions.ts` e ligação no painel `/dashboard`.
 - **Meta F (Outbound + UI Sandbox):** criado `src/lib/whatsapp/session-sender.ts` (ligando `WhatsAppSessionManager` ao `OutboundSender` para recusar envios sem sessão `connected`), o runtime sandbox server-only `src/lib/whatsapp/sandbox-runtime.server.ts` e o painel autenticado `src/app/whatsapp/page.tsx` + `src/app/whatsapp/actions.ts` (estado de ligação, QR efémero sandbox, desconexão/logout, paginação de conversas, mensagens, fila outbox e simulador inbound→assistente→outbox).
 - **Meta G (Providers LLM + Rate Limiter):** criado `src/lib/domain/assistant-providers.ts` (adaptadores configuráveis Gemini e OpenAI-compatible com guarda SSRF `assertSafeLlmEndpointUrl`, limite de 512 tokens e provider determinístico read-only para modo sandbox), `src/lib/domain/assistant-providers.server.ts`, `src/lib/domain/assistant-rate-limit.ts` (janela deslizante por utilizador e orçamento diário por loja) e placeholders vazios em `.env.example`.
@@ -19,7 +20,7 @@ O incremento actual avançou as Metas F, G e H no código Next.js/TypeScript e c
 ## Progresso por meta
 
 | Meta | Estado | Evidência e próximo passo |
-|---|---|---|
+| --- | --- | --- |
 | A — Baseline | Parcial | Plano integral, baseline, modelo de dados, Meta 3, README, `package.json`, CI e código local inspeccionados. `git status --short --branch` confirmou a branch `hugo-pc21-edvania-implementation` e alterações locais rastreadas/não rastreadas deste trabalho; `HEAD`, remoto e estado remoto das migrations não foram confirmados. A baseline e lista remota nos documentos existentes são divergentes e não foram tratadas como estado actual. |
 | B — Gate Meta 3 | Em curso | Os serviços e Server Actions passam a chamar RPCs que agrupam mutação e auditoria na mesma transacção. Adicionada `supabase/migrations/20261121080000_atomic_domain_audit.sql`, incluindo replay auditado idempotente para operações com chave e movimento de caixa. Corrigido o argumento `category` opcional para a assinatura SQL obrigatória. Testes SQL de rollback e replay foram acrescentados/actualizados, mas não executados. A migration não foi aplicada remotamente. |
 | C — Schema WhatsApp | Preparada, não validada no PostgreSQL | `20261121100000_whatsapp_durable_processing.sql` associa conversas/mensagens a ligação, permite várias ligações, deduplica por conexão, adiciona `whatsapp_jobs` e `whatsapp_outbox`; todas as RPCs de claim, finalização e limpeza exigem `store_id`, claims usam `SKIP LOCKED`, finalização exige lease token vigente e retries são limitados. Envio ambíguo fica `unknown`. Testes SQL cobrem claims/finalização cross-tenant, duplicação, stale leases, retry e status ambíguo. Nenhum SQL foi executado em PostgreSQL; `psql`, `pg_ctl`, `docker` e `supabase` CLI não estão disponíveis neste ambiente. Nada foi aplicado remotamente; Meta C não concluída. |
@@ -113,7 +114,7 @@ O incremento actual avançou as Metas F, G e H no código Next.js/TypeScript e c
 Não foi copiado código da v2. A aplicação oficial continua Next.js, TypeScript, Supabase/PostgreSQL, Auth e RLS.
 
 | Funcionalidade/padrão observado | Decisão | Aplicação/limite |
-|---|---|---|
+| --- | --- | --- |
 | Baileys: ciclo de sessão, QR, ligação/desligamento, reconexão | ADAPTAR | Provider server-only; estado e credenciais geridos pelo backend seguro e tenant-scoped. |
 | Mutex por sessão, callbacks de socket obsoleto e testes de idempotência | ADOTAR | Adoptar os casos de teste/conceitos, reimplementando em TypeScript com isolamento e concorrência. |
 | Inbox, histórico e normalização de mensagens | ADAPTAR | Supabase com `store_id`, ligação, paginação, validação e deduplicação provider/connection/message. |
