@@ -8,6 +8,7 @@
 ## Checkpoint actual
 
 O incremento actual completou as rotas autenticadas de ingress/outbox, a integração híbrida Supabase/Sandbox, a persistência cifrada de credenciais (`baileys_auth_state`), o registo de uso de IA (`ai_usage_logs`) e a recuperação idempotente + migration local de confirmações:
+
 - **Caixa Web (`/cash`):** página operacional `src/app/cash/page.tsx`, formulários com confirmação explícita de fecho (`src/app/cash/cash-forms.tsx`), acção `recordCashExpense` em `src/app/cash/actions.ts` e atalho no `/dashboard`.
 - **Meta E & F (Ingress, Worker e UI Sandbox):**
   - `src/lib/whatsapp/webhook-auth.ts` + `src/app/api/whatsapp/webhook/route.ts` (verificação HMAC-SHA256 `timingSafeEqual`, resolução exclusiva de `store_id` via `whatsapp_connections`, validação Zod, normalização e enfileiramento idempotente).
@@ -29,7 +30,7 @@ O incremento actual completou as rotas autenticadas de ingress/outbox, a integra
 ## Progresso por meta
 
 | Meta | Estado | Evidência e próximo passo |
-|---|---|---|
+| --- | --- | --- |
 | A — Baseline | Parcial | Plano integral, baseline, modelo de dados, Meta 3, README, `package.json`, CI e código local inspeccionados. `git status --short --branch` confirmou a branch `hugo-pc21-edvania-implementation` e alterações locais rastreadas/não rastreadas deste trabalho; `HEAD`, remoto e estado remoto das migrations não foram confirmados. A baseline e lista remota nos documentos existentes são divergentes e não foram tratadas como estado actual. |
 | B — Gate Meta 3 | Em curso | Os serviços e Server Actions passam a chamar RPCs que agrupam mutação e auditoria na mesma transacção. Adicionada `supabase/migrations/20261121080000_atomic_domain_audit.sql`, incluindo replay auditado idempotente para operações com chave e movimento de caixa. Corrigido o argumento `category` opcional para a assinatura SQL obrigatória. Testes SQL de rollback e replay foram acrescentados/actualizados, mas não executados. A migration não foi aplicada remotamente. |
 | C — Schema WhatsApp | Preparada, não validada no PostgreSQL | `20261121100000_whatsapp_durable_processing.sql` associa conversas/mensagens a ligação, permite várias ligações, deduplica por conexão, adiciona `whatsapp_jobs` e `whatsapp_outbox`; todas as RPCs de claim, finalização e limpeza exigem `store_id`, claims usam `SKIP LOCKED`, finalização exige lease token vigente e retries são limitados. Envio ambíguo fica `unknown`. Testes SQL cobrem claims/finalização cross-tenant, duplicação, stale leases, retry e status ambíguo. Nenhum SQL foi executado em PostgreSQL; `psql`, `pg_ctl`, `docker` e `supabase` CLI não estão disponíveis neste ambiente. Nada foi aplicado remotamente; Meta C não concluída. |
@@ -123,7 +124,7 @@ O incremento actual completou as rotas autenticadas de ingress/outbox, a integra
 Não foi copiado código da v2. A aplicação oficial continua Next.js, TypeScript, Supabase/PostgreSQL, Auth e RLS.
 
 | Funcionalidade/padrão observado | Decisão | Aplicação/limite |
-|---|---|---|
+| --- | --- | --- |
 | Baileys: ciclo de sessão, QR, ligação/desligamento, reconexão | ADAPTAR | Provider server-only; estado e credenciais geridos pelo backend seguro e tenant-scoped. |
 | Mutex por sessão, callbacks de socket obsoleto e testes de idempotência | ADOTAR | Adoptar os casos de teste/conceitos, reimplementando em TypeScript com isolamento e concorrência. |
 | Inbox, histórico e normalização de mensagens | ADAPTAR | Supabase com `store_id`, ligação, paginação, validação e deduplicação provider/connection/message. |
