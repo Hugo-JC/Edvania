@@ -16,10 +16,16 @@ import {
   openCashSession,
   registerExpense,
 } from "./services";
+import {
+  InMemoryConfirmationDraftStore,
+  InMemoryConfirmationRecoveryStore,
+} from "./confirmations-recovery";
 import {InMemoryConfirmationStore} from "./confirmations-store";
 
 const globalConfirmations = globalThis as unknown as {
   __edvaniaConfirmationStore?: InMemoryConfirmationStore;
+  __edvaniaConfirmationRecoveryStore?: InMemoryConfirmationRecoveryStore;
+  __edvaniaConfirmationDraftStore?: InMemoryConfirmationDraftStore;
 };
 
 export function getSharedConfirmationStore(): InMemoryConfirmationStore {
@@ -27,6 +33,20 @@ export function getSharedConfirmationStore(): InMemoryConfirmationStore {
     globalConfirmations.__edvaniaConfirmationStore = new InMemoryConfirmationStore();
   }
   return globalConfirmations.__edvaniaConfirmationStore;
+}
+
+export function getSharedConfirmationRecoveryStore(): InMemoryConfirmationRecoveryStore {
+  if (!globalConfirmations.__edvaniaConfirmationRecoveryStore) {
+    globalConfirmations.__edvaniaConfirmationRecoveryStore = new InMemoryConfirmationRecoveryStore();
+  }
+  return globalConfirmations.__edvaniaConfirmationRecoveryStore;
+}
+
+export function getSharedConfirmationDraftStore(): InMemoryConfirmationDraftStore {
+  if (!globalConfirmations.__edvaniaConfirmationDraftStore) {
+    globalConfirmations.__edvaniaConfirmationDraftStore = new InMemoryConfirmationDraftStore();
+  }
+  return globalConfirmations.__edvaniaConfirmationDraftStore;
 }
 
 const money = new Intl.NumberFormat("pt-AO", {style: "currency", currency: "AOA", maximumFractionDigits: 2});

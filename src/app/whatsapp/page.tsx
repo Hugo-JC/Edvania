@@ -1,12 +1,18 @@
 import {randomUUID} from "node:crypto";
 import Link from "next/link";
 import {redirect} from "next/navigation";
+import {resolveConfiguredAssistantProviders} from "@/lib/domain/assistant-providers.server";
+import {getSharedConfirmationDraftStore} from "@/lib/domain/confirmations.server";
 import {createClient} from "@/lib/supabase/server";
 import {getSandboxWhatsAppRuntime} from "@/lib/whatsapp/sandbox-runtime.server";
 import {
+  cancelAssistedOperation,
+  confirmAssistedOperation,
   confirmSandboxSession,
   connectSandboxSession,
   disconnectSandboxSession,
+  dispatchPendingOutbox,
+  prepareAssistedSale,
   simulateInboundSandboxMessage,
 } from "./actions";
 
@@ -18,6 +24,8 @@ type Props = {
     notice?: string;
     error?: string;
     outbox?: string;
+    claimed?: string;
+    draft?: string;
   }>;
 };
 
@@ -53,24 +61,37 @@ export default async function WhatsAppPage({searchParams}: Props) {
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const [{data: store}, {data: connections}, {data: conversations, count: totalConversations}] = await Promise.all([
-    supabase.from("stores").select("name").eq("id", storeId).single(),
-    supabase
-      .from("whatsapp_connections")
-      .select("id,provider,phone_e164,connection_status,last_connected_at")
-      .eq("store_id", storeId)
-      .order("created_at"),
-    supabase
-      .from("whatsapp_conversations")
-      .select("id,connection_id,wa_contact,contact_name,last_message_at", {count: "exact"})
-      .eq("store_id", storeId)
-      .order("last_message_at", {ascending: false})
-      .range(from, to),
-  ]);
+  const [{data: store}, {data: connections}, {data: conversations, count: totalConversations}, {data: products}] =
+    await Promise.all([
+      supabase.from("stores").select("name").eq("id", storeId).single(),
+      supabase
+        .from("whatsapp_connections")
+        .select("id,provider,phone_e164,connection_status,last_connected_at")
+        .eq("store_id", storeId)
+        .order("created_at"),
+      supabase
+        .from("whatsapp_conversations")
+        .select("id,connection_id,wa_contact,contact_name,last_message_at", {count: "exact"})
+        .eq("store_id", storeId)
+        .order("last_message_at", {ascending: false})
+        .range(from, to),
+      supabase
+        .from("products")
+        .select("id,name,sale_price")
+        .eq("store_id", storeId)
+        .eq("status", "active")
+        .order("name")
+        .limit(50),
+    ]);
 
   const primaryConnectionId = connections?.[0]?.id ?? randomUUID();
   const runtime = getSandboxWhatsAppRuntime();
   const snapshot = runtime.getSnapshot(storeId, primaryConnectionId);
+  const assistantProviders = resolveConfiguredAssistantProviders();
+  const pendingDraft =
+    params.draft && /^[0-9a-f-]{36}$/i.test(params.draft)
+      ? getSharedConfirmationDraftStore().getForContext(params.draft, storeId, user.id)
+      : null;
 
   const selectedConversationId =
     conversations?.find((c) => c.id === params.conversation)?.id ?? conversations?.[0]?.id;
@@ -131,6 +152,19 @@ export default async function WhatsAppPage({searchParams}: Props) {
             Mensagem inbound processada pelo assistente. Estado da resposta na outbox: {params.outbox ?? "queued"}.
           </p>
         )}
+        {params.notice === "dispatched" && (
+          <p className="notice" role="status">
+            Lote da fila outbox processado ({params.claimed ?? "0"} mensagens verificadas).
+          </p>
+        )}
+        {params.notice === "confirmed" && (
+          <p className="notice" role="status">
+            Operação assistida confirmada e executada com chave idempotente única.
+          </p>
+        )}
+        {params.notice === "cancelled" && (
+          <p className="notice" role="status">Pré-visualização de operação descartada sem alterações.</p>
+        )}
 
         <section className="panel-card">
           <div className="section-heading">
@@ -138,7 +172,8 @@ export default async function WhatsAppPage({searchParams}: Props) {
             <span>{statusLabel[snapshot.status] ?? snapshot.status}</span>
           </div>
           <p className="muted">
-            Ligação: <code>{primaryConnectionId.slice(0, 8)}…</code> · Tentativas: {snapshot.retryAttempt}
+            Ligação: <code>{primaryConnectionId.slice(0, 8)}…</code> · Tentativas: {snapshot.retryAttempt} · Assistente:{" "}
+            {assistantProviders.mode === "configured" ? "LLM configurado" : "Sandbox determinístico"}
             {snapshot.lastError ? ` · Último código: ${snapshot.lastError}` : ""}
           </p>
 
@@ -203,6 +238,80 @@ export default async function WhatsAppPage({searchParams}: Props) {
             </label>
             <button className="primary-button" type="submit">Processar mensagem sandbox</button>
           </form>
+        </section>
+
+        <section className="panel-card">
+          <h2>Operação assistida com confirmação explícita (Meta H)</h2>
+          <p className="muted">
+            Prepara um resumo autoritativo no servidor antes de executar uma venda, vinculando tenant, utilizador e expiração curta de uso único.
+          </p>
+
+          {pendingDraft ? (
+            <section className="panel-card" aria-live="polite" style={{marginTop: 14}}>
+              <h3>Confirmar operação preparada</h3>
+              <p><strong>Resumo:</strong> {pendingDraft.summary}</p>
+              <p className="muted">
+                Expira em:{" "}
+                {new Intl.DateTimeFormat("pt-AO", {
+                  dateStyle: "short",
+                  timeStyle: "medium",
+                  timeZone: "Africa/Luanda",
+                }).format(new Date(pendingDraft.expiresAt))}
+              </p>
+              <div className="store-actions" style={{marginTop: 14}}>
+                <form action={confirmAssistedOperation}>
+                  <input type="hidden" name="storeId" value={storeId} />
+                  <input type="hidden" name="draftId" value={pendingDraft.draftId} />
+                  <button className="primary-button" type="submit">Confirmar e executar operação</button>
+                </form>
+                <form action={cancelAssistedOperation}>
+                  <input type="hidden" name="storeId" value={storeId} />
+                  <input type="hidden" name="draftId" value={pendingDraft.draftId} />
+                  <button className="quiet-button" type="submit">Cancelar</button>
+                </form>
+              </div>
+            </section>
+          ) : !products?.length ? (
+            <p className="muted">Adiciona pelo menos um produto activo na loja para preparar uma venda assistida.</p>
+          ) : (
+            <form className="form" action={prepareAssistedSale}>
+              <input type="hidden" name="storeId" value={storeId} />
+              {selectedConversationId && (
+                <input type="hidden" name="conversationId" value={selectedConversationId} />
+              )}
+              <div className="form-grid">
+                <label>
+                  Produto
+                  <select name="productId" required defaultValue={products[0].id}>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name} ({Number(product.sale_price).toFixed(2)} AOA)
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Quantidade
+                  <input name="quantity" type="number" min="1" step="1" defaultValue="1" required />
+                </label>
+                <label>
+                  Valor recebido (AOA)
+                  <input name="paidAmount" type="number" min="0" step="0.01" defaultValue={String(products[0].sale_price ?? 0)} required />
+                </label>
+                <label>
+                  Método de pagamento
+                  <select name="paymentMethod" defaultValue="cash">
+                    <option value="cash">Numerário</option>
+                    <option value="multicaixa_express">Multicaixa Express</option>
+                    <option value="multicaixa_reference">Referência Multicaixa</option>
+                    <option value="bank_transfer">Transferência bancária</option>
+                    <option value="other">Outro</option>
+                  </select>
+                </label>
+              </div>
+              <button className="quiet-button" type="submit">Preparar resumo de confirmação</button>
+            </form>
+          )}
         </section>
 
         <section className="panel-card">
@@ -299,6 +408,10 @@ export default async function WhatsAppPage({searchParams}: Props) {
             <h2>Fila Outbox</h2>
             <span>{outboxItems?.length ?? 0} registos</span>
           </div>
+          <form action={dispatchPendingOutbox} style={{marginBottom: 14}}>
+            <input type="hidden" name="storeId" value={storeId} />
+            <button className="quiet-button" type="submit">Processar fila outbox</button>
+          </form>
           {!outboxItems?.length ? (
             <p className="muted">Nenhuma resposta na fila outbox.</p>
           ) : (

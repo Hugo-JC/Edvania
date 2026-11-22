@@ -105,3 +105,159 @@ export async function simulateInboundSandboxMessage(formData: FormData) {
     redirect(`/whatsapp?store=${parsed.data.storeId}&error=simulation-failed`);
   }
 }
+
+export async function dispatchPendingOutbox(formData: FormData) {
+  const parsed = z.object({storeId: uuid}).safeParse({
+    storeId: formData.get("storeId"),
+  });
+  if (!parsed.success) redirect("/dashboard?error=invalid-whatsapp");
+
+  const {user} = await authorizeWhatsAppOperator(parsed.data.storeId);
+  const runtime = getSandboxWhatsAppRuntime();
+  const {isSupabaseConfigured} = await import("@/lib/env");
+  const {createServerWhatsAppOutboxStore} = await import("@/lib/whatsapp/outbox-store.server");
+  const {dispatchOutboxBatch} = await import("@/lib/whatsapp/outbox-worker");
+
+  try {
+    const store = isSupabaseConfigured() && process.env.SUPABASE_SECRET_KEY?.trim()
+      ? createServerWhatsAppOutboxStore()
+      : runtime.createMockOutboxStore();
+
+    const batch = await dispatchOutboxBatch(
+      parsed.data.storeId,
+      `operator-${user.id.slice(0, 8)}`,
+      store,
+      runtime.createOutboxSender(),
+      {limit: 20, leaseSeconds: 60},
+    );
+    redirect(`/whatsapp?store=${parsed.data.storeId}&notice=dispatched&claimed=${batch.claimed}`);
+  } catch {
+    redirect(`/whatsapp?store=${parsed.data.storeId}&error=dispatch-failed`);
+  }
+}
+
+export async function prepareAssistedSale(formData: FormData) {
+  const parsed = z.object({
+    storeId: uuid,
+    conversationId: uuid.optional(),
+    productId: uuid,
+    quantity: z.coerce.number().finite().positive().max(10_000),
+    paidAmount: z.coerce.number().finite().min(0).max(1_000_000_000),
+    paymentMethod: z.enum(["cash", "bank_transfer", "multicaixa_reference", "multicaixa_express", "other"]),
+  }).safeParse({
+    storeId: formData.get("storeId"),
+    conversationId: formData.get("conversationId") || undefined,
+    productId: formData.get("productId"),
+    quantity: formData.get("quantity"),
+    paidAmount: formData.get("paidAmount"),
+    paymentMethod: formData.get("paymentMethod") ?? "cash",
+  });
+
+  if (!parsed.success) {
+    const storeId = String(formData.get("storeId") ?? "");
+    redirect(uuid.safeParse(storeId).success ? `/whatsapp?store=${storeId}&error=invalid-preview` : "/dashboard");
+  }
+
+  const {supabase, user} = await authorizeWhatsAppOperator(parsed.data.storeId);
+  const {randomUUID} = await import("node:crypto");
+  const {prepareOperationConfirmation} = await import("@/lib/domain/confirmations");
+  const {
+    createDomainOperationPreviewer,
+    getSharedConfirmationDraftStore,
+    getSharedConfirmationStore,
+  } = await import("@/lib/domain/confirmations.server");
+
+  const context = {
+    tenantId: parsed.data.storeId,
+    userId: user.id,
+    conversationId: parsed.data.conversationId ?? parsed.data.storeId,
+  };
+  const input = {
+    items: [{productId: parsed.data.productId, quantity: parsed.data.quantity}],
+    paymentMethod: parsed.data.paymentMethod,
+    paidAmount: parsed.data.paidAmount,
+  };
+
+  try {
+    const prepared = await prepareOperationConfirmation(
+      context,
+      "create_sale",
+      input,
+      createDomainOperationPreviewer(supabase),
+      getSharedConfirmationStore(),
+      {ttlMs: 5 * 60 * 1000},
+    );
+    const draftId = randomUUID();
+    getSharedConfirmationDraftStore().save({
+      draftId,
+      context,
+      operation: prepared.operation,
+      input,
+      token: prepared.token,
+      summary: prepared.summary,
+      expiresAt: prepared.expiresAt,
+    });
+    redirect(`/whatsapp?store=${parsed.data.storeId}&draft=${draftId}`);
+  } catch {
+    redirect(`/whatsapp?store=${parsed.data.storeId}&error=invalid-preview`);
+  }
+}
+
+export async function confirmAssistedOperation(formData: FormData) {
+  const parsed = z.object({storeId: uuid, draftId: uuid}).safeParse({
+    storeId: formData.get("storeId"),
+    draftId: formData.get("draftId"),
+  });
+  if (!parsed.success) redirect("/dashboard?error=invalid-whatsapp");
+
+  const {supabase, user} = await authorizeWhatsAppOperator(parsed.data.storeId);
+  const {confirmOperationWithRecovery} = await import("@/lib/domain/confirmations-recovery");
+  const {
+    createDomainConfirmedExecutor,
+    createDomainOperationPreviewer,
+    getSharedConfirmationDraftStore,
+    getSharedConfirmationRecoveryStore,
+    getSharedConfirmationStore,
+  } = await import("@/lib/domain/confirmations.server");
+
+  const draftStore = getSharedConfirmationDraftStore();
+  const draft = draftStore.getForContext(parsed.data.draftId, parsed.data.storeId, user.id);
+  if (!draft) {
+    redirect(`/whatsapp?store=${parsed.data.storeId}&error=confirm-expired`);
+  }
+
+  try {
+    const result = await confirmOperationWithRecovery(
+      draft.context,
+      draft.operation,
+      draft.input,
+      draft.token,
+      createDomainOperationPreviewer(supabase),
+      getSharedConfirmationStore(),
+      createDomainConfirmedExecutor(),
+      getSharedConfirmationRecoveryStore(),
+    );
+    draftStore.deleteForContext(parsed.data.draftId, parsed.data.storeId, user.id);
+    if (!result.ok) {
+      redirect(`/whatsapp?store=${parsed.data.storeId}&error=confirm-failed`);
+    }
+    redirect(`/whatsapp?store=${parsed.data.storeId}&notice=confirmed`);
+  } catch {
+    draftStore.deleteForContext(parsed.data.draftId, parsed.data.storeId, user.id);
+    redirect(`/whatsapp?store=${parsed.data.storeId}&error=confirm-failed`);
+  }
+}
+
+export async function cancelAssistedOperation(formData: FormData) {
+  const parsed = z.object({storeId: uuid, draftId: uuid}).safeParse({
+    storeId: formData.get("storeId"),
+    draftId: formData.get("draftId"),
+  });
+  if (!parsed.success) redirect("/dashboard?error=invalid-whatsapp");
+
+  const {user} = await authorizeWhatsAppOperator(parsed.data.storeId);
+  const {getSharedConfirmationDraftStore} = await import("@/lib/domain/confirmations.server");
+  getSharedConfirmationDraftStore().deleteForContext(parsed.data.draftId, parsed.data.storeId, user.id);
+  redirect(`/whatsapp?store=${parsed.data.storeId}&notice=cancelled`);
+}
+
