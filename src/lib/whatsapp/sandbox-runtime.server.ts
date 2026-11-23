@@ -172,35 +172,72 @@ class SandboxRuntime {
 
     let conversationId = "";
     if (useSupabase) {
-      const inboundStore = createServerWhatsAppInboundStore();
-      await ingestInboundMessage(
-        {
-          tenantId: params.storeId,
-          connectionId: params.connectionId,
-          senderId: params.senderJid,
-          isFromMe: false,
-          isBroadcast: false,
-          contactName: params.contactName ?? "Cliente Sandbox",
-          providerMessageId,
-          messageType: "text",
-          body: params.body,
-          receivedAtMs,
-        },
-        inboundStore,
-        receivedAtMs,
-      );
       const {url} = getPublicEnv();
       const admin = createSupabaseClient<Database>(url, process.env.SUPABASE_SECRET_KEY!.trim(), {
         auth: {autoRefreshToken: false, persistSession: false},
       });
-      const {data: conv} = await admin
-        .from("whatsapp_conversations")
-        .select("id")
-        .eq("store_id", params.storeId)
-        .eq("connection_id", params.connectionId)
-        .eq("wa_contact", params.senderJid)
-        .maybeSingle();
-      conversationId = conv?.id ?? "";
+      try {
+        const inboundStore = createServerWhatsAppInboundStore();
+        await ingestInboundMessage(
+          {
+            tenantId: params.storeId,
+            connectionId: params.connectionId,
+            senderId: params.senderJid,
+            isFromMe: false,
+            isBroadcast: false,
+            contactName: params.contactName ?? "Cliente Sandbox",
+            providerMessageId,
+            messageType: "text",
+            body: params.body,
+            receivedAtMs,
+          },
+          inboundStore,
+          receivedAtMs,
+        );
+        const {data: conv} = await admin
+          .from("whatsapp_conversations")
+          .select("id")
+          .eq("store_id", params.storeId)
+          .eq("connection_id", params.connectionId)
+          .eq("wa_contact", params.senderJid)
+          .maybeSingle();
+        conversationId = conv?.id ?? "";
+      } catch {
+        const nowIso = new Date(receivedAtMs).toISOString();
+        const {data: existingConv} = await admin
+          .from("whatsapp_conversations")
+          .select("id")
+          .eq("store_id", params.storeId)
+          .eq("wa_contact", params.senderJid)
+          .maybeSingle();
+        if (existingConv) {
+          conversationId = existingConv.id;
+        } else {
+          const {data: createdConv} = await admin
+            .from("whatsapp_conversations")
+            .insert({
+              store_id: params.storeId,
+              wa_contact: params.senderJid,
+              contact_name: params.contactName ?? "Cliente Sandbox",
+              last_message_at: nowIso,
+            } as never)
+            .select("id")
+            .single();
+          conversationId = createdConv?.id ?? "";
+        }
+        if (conversationId) {
+          await admin.from("whatsapp_messages").insert({
+            store_id: params.storeId,
+            conversation_id: conversationId,
+            direction: "inbound",
+            message_type: "text",
+            body: params.body,
+            external_message_id: providerMessageId,
+            delivery_status: "received",
+            sent_at: nowIso,
+          } as never);
+        }
+      }
     } else {
       const db = getMockDb();
       let conversation = db.whatsapp_conversations.find(
@@ -257,8 +294,8 @@ class SandboxRuntime {
 
     await recordAiUsageLog({
       storeId: params.storeId,
-      provider: providers.mode === "configured" ? "gemini_or_fallback" : "sandbox",
-      model: providers.mode === "configured" ? (process.env.LLM_PRIMARY_MODEL?.trim() || "gemini-2.5-flash-lite") : "sandbox",
+      provider: providers.mode === "configured" ? providers.primaryProvider : "sandbox",
+      model: providers.primaryModel,
       success: turn.ok,
       latencyMs,
       statusCode: turn.ok ? 200 : 500,
@@ -274,7 +311,7 @@ class SandboxRuntime {
       const admin = createSupabaseClient<Database>(url, process.env.SUPABASE_SECRET_KEY!.trim(), {
         auth: {autoRefreshToken: false, persistSession: false},
       });
-      await admin.from("whatsapp_outbox").insert({
+      const outboxInsert = await admin.from("whatsapp_outbox").insert({
         store_id: params.storeId,
         connection_id: params.connectionId,
         conversation_id: conversationId,
@@ -283,6 +320,20 @@ class SandboxRuntime {
         body: replyText,
         status: "queued",
       });
+
+      if (outboxInsert.error) {
+        await admin.from("whatsapp_messages").insert({
+          store_id: params.storeId,
+          conversation_id: conversationId,
+          direction: "outbound",
+          message_type: "text",
+          body: replyText,
+          external_message_id: `sandbox-out-${outboxKey}`,
+          delivery_status: "sent",
+          sent_at: now,
+        } as never);
+        return {replyText, outboxStatus: "sent"};
+      }
 
       const batch = await dispatchOutboxBatch(
         params.storeId,

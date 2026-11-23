@@ -117,6 +117,7 @@ export function AssistantWhatsAppPanel({
   initialConversations,
   initialMessages,
   products,
+  pendingMigrations = false,
 }: {
   storeId: string;
   storeName: string;
@@ -127,6 +128,7 @@ export function AssistantWhatsAppPanel({
   initialConversations: ConversationRow[];
   initialMessages: MessageRow[];
   products: ProductOption[];
+  pendingMigrations?: boolean;
 }) {
   const canManage = ["owner", "admin", "manager"].includes(role);
 
@@ -558,11 +560,24 @@ export function AssistantWhatsAppPanel({
 
   return (
     <div className="space-y-6">
+      {pendingMigrations && (
+        <div
+          role="status"
+          className="rounded-[14px] border border-[#F59E0B]/40 bg-[#FEF7EA] px-5 py-4 text-[13.5px] text-[#78350F]"
+        >
+          <p className="font-semibold">Actualização de base de dados pendente no Supabase</p>
+          <p className="mt-1">
+            O chat e o QR Code Baileys já funcionam em modo compatível, mas faltam aplicar as migrações pendentes (fila outbox durável, confirmações persistentes e RPCs com auditoria). Executa o ficheiro{" "}
+            <code className="font-mono text-[12px]">supabase/APPLY_PENDING_IN_SUPABASE_SQL_EDITOR.sql</code> no SQL Editor do teu projecto Supabase.
+          </p>
+        </div>
+      )}
+
       {/* Top Diagnostic & Model Verification Bar */}
       <motion.section
-        initial={{opacity: 0, y: 10}}
-        animate={{opacity: 1, y: 0}}
-        transition={{duration: 0.28}}
+        initial={{y: 8}}
+        animate={{y: 0}}
+        transition={{duration: 0.25}}
         className="rounded-[14px] border border-[#E2E7E3] bg-white p-5 sm:p-6"
       >
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -659,9 +674,9 @@ export function AssistantWhatsAppPanel({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* LEFT COLUMN: Direct AI Chat */}
         <motion.section
-          initial={{opacity: 0, y: 12}}
-          animate={{opacity: 1, y: 0}}
-          transition={{duration: 0.3, delay: 0.04}}
+          initial={{y: 8}}
+          animate={{y: 0}}
+          transition={{duration: 0.25, delay: 0.03}}
           className="flex flex-col rounded-[14px] border border-[#E2E7E3] bg-white lg:col-span-7"
         >
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E7E3] px-5 py-4">
@@ -829,9 +844,9 @@ export function AssistantWhatsAppPanel({
             {messages.map((entry) => (
               <motion.div
                 key={entry.id}
-                initial={{opacity: 0, y: 6}}
-                animate={{opacity: 1, y: 0}}
-                transition={{duration: 0.2}}
+                initial={{y: 4}}
+                animate={{y: 0}}
+                transition={{duration: 0.18}}
                 className={`flex flex-col ${entry.role === "user" ? "items-end" : "items-start"}`}
               >
                 <div
@@ -905,9 +920,9 @@ export function AssistantWhatsAppPanel({
 
         {/* RIGHT COLUMN: Registered WhatsApp + Baileys QR + First Test */}
         <motion.div
-          initial={{opacity: 0, y: 12}}
-          animate={{opacity: 1, y: 0}}
-          transition={{duration: 0.3, delay: 0.08}}
+          initial={{y: 8}}
+          animate={{y: 0}}
+          transition={{duration: 0.25, delay: 0.05}}
           className="space-y-6 lg:col-span-5"
         >
           {/* WhatsApp Registration & Baileys Session Card */}

@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response;
 
   const {supabase, storeId} = auth;
-  const [{data: connections}, {data: conversations}, {data: outboxItems}] = await Promise.all([
+  const [{data: connections}, conversationsRes, outboxRes] = await Promise.all([
     supabase
       .from("whatsapp_connections")
       .select("id,provider,phone_e164,connection_status,last_connected_at,created_at")
@@ -32,6 +32,18 @@ export async function GET(request: NextRequest) {
       .order("created_at", {ascending: false})
       .limit(8),
   ]);
+
+  let conversations = conversationsRes.data;
+  if (conversationsRes.error) {
+    const fallbackConvs = await supabase
+      .from("whatsapp_conversations")
+      .select("id,wa_contact,contact_name,last_message_at")
+      .eq("store_id", storeId)
+      .order("last_message_at", {ascending: false})
+      .limit(12);
+    conversations = (fallbackConvs.data ?? []).map((c) => ({...c, connection_id: ""}));
+  }
+  const outboxItems = outboxRes.data ?? [];
 
   const requestedConvId = request.nextUrl.searchParams.get("conversation");
   const activeConversationId =

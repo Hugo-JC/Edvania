@@ -62,7 +62,7 @@ export default async function WhatsAppPage({searchParams}: Props) {
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const [{data: store}, {data: connections}, {data: conversations, count: totalConversations}, {data: products}] =
+  const [{data: store}, {data: connections}, conversationsRes, {data: products}] =
     await Promise.all([
       supabase.from("stores").select("name").eq("id", storeId).single(),
       supabase
@@ -85,6 +85,20 @@ export default async function WhatsAppPage({searchParams}: Props) {
         .limit(50),
     ]);
 
+  let conversations = conversationsRes.data;
+  let totalConversations = conversationsRes.count;
+  let pendingMigrations = Boolean(conversationsRes.error);
+  if (conversationsRes.error) {
+    const fallback = await supabase
+      .from("whatsapp_conversations")
+      .select("id,wa_contact,contact_name,last_message_at", {count: "exact"})
+      .eq("store_id", storeId)
+      .order("last_message_at", {ascending: false})
+      .range(from, to);
+    conversations = (fallback.data ?? []).map((c) => ({...c, connection_id: ""}));
+    totalConversations = fallback.count;
+  }
+
   const primaryConnectionId = connections?.[0]?.id ?? randomUUID();
   const runtime = getSandboxWhatsAppRuntime();
   const snapshot = runtime.getSnapshot(storeId, primaryConnectionId);
@@ -97,7 +111,7 @@ export default async function WhatsAppPage({searchParams}: Props) {
   const selectedConversationId =
     conversations?.find((c) => c.id === params.conversation)?.id ?? conversations?.[0]?.id;
 
-  const [{data: messages}, {data: outboxItems}] = await Promise.all([
+  const [{data: messages}, outboxRes] = await Promise.all([
     selectedConversationId
       ? supabase
           .from("whatsapp_messages")
@@ -114,6 +128,10 @@ export default async function WhatsAppPage({searchParams}: Props) {
       .order("created_at", {ascending: false})
       .limit(10),
   ]);
+  if (outboxRes.error) {
+    pendingMigrations = true;
+  }
+  const outboxItems = outboxRes.data ?? [];
 
   const totalPages = Math.max(1, Math.ceil((totalConversations ?? 0) / PAGE_SIZE));
 
@@ -138,6 +156,19 @@ export default async function WhatsAppPage({searchParams}: Props) {
             Abrir painel Assistente IA e Baileys
           </Link>
         </div>
+
+        {pendingMigrations && (
+          <div
+            role="status"
+            className="mt-4 rounded-[14px] border border-[#F59E0B]/40 bg-[#FEF7EA] px-5 py-4 text-[13.5px] text-[#78350F]"
+          >
+            <p className="font-semibold">Migrações pendentes detectadas no Supabase</p>
+            <p className="mt-1">
+              A fila <code>whatsapp_outbox</code> ou a coluna <code>connection_id</code> ainda não foram criadas no teu projecto Supabase. Executa{" "}
+              <code>supabase/APPLY_PENDING_IN_SUPABASE_SQL_EDITOR.sql</code> no SQL Editor do Supabase.
+            </p>
+          </div>
+        )}
 
         {params.error && (
           <p className="error" role="alert">

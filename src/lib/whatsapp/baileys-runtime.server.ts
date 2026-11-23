@@ -426,31 +426,73 @@ class BaileysWhatsAppRuntime {
     let inserted = true;
 
     if (admin) {
-      const store = createServerWhatsAppInboundStore();
-      const ingestResult = await ingestInboundMessage(
-        {
-          tenantId: entry.storeId,
-          connectionId: entry.connectionId,
-          senderId: senderJid,
-          isFromMe: false,
-          isBroadcast: false,
-          contactName,
-          providerMessageId,
-          messageType: "text",
-          body,
-          receivedAtMs,
-        },
-        store,
-      );
-      inserted = ingestResult.inserted;
-      const {data: conv} = await admin
-        .from("whatsapp_conversations")
-        .select("id")
-        .eq("store_id", entry.storeId)
-        .eq("connection_id", entry.connectionId)
-        .eq("wa_contact", senderJid)
-        .maybeSingle();
-      conversationId = conv?.id ?? "";
+      try {
+        const store = createServerWhatsAppInboundStore();
+        const ingestResult = await ingestInboundMessage(
+          {
+            tenantId: entry.storeId,
+            connectionId: entry.connectionId,
+            senderId: senderJid,
+            isFromMe: false,
+            isBroadcast: false,
+            contactName,
+            providerMessageId,
+            messageType: "text",
+            body,
+            receivedAtMs,
+          },
+          store,
+        );
+        inserted = ingestResult.inserted;
+        const {data: conv} = await admin
+          .from("whatsapp_conversations")
+          .select("id")
+          .eq("store_id", entry.storeId)
+          .eq("connection_id", entry.connectionId)
+          .eq("wa_contact", senderJid)
+          .maybeSingle();
+        conversationId = conv?.id ?? "";
+      } catch {
+        // Legacy pre-20261121100000 schema compatibility: record without connection_id / RPC.
+        const now = new Date(receivedAtMs).toISOString();
+        const {data: existingConv} = await admin
+          .from("whatsapp_conversations")
+          .select("id")
+          .eq("store_id", entry.storeId)
+          .eq("wa_contact", senderJid)
+          .maybeSingle();
+        if (existingConv) {
+          conversationId = existingConv.id;
+          await admin
+            .from("whatsapp_conversations")
+            .update({last_message_at: now, updated_at: now})
+            .eq("id", conversationId);
+        } else {
+          const {data: createdConv} = await admin
+            .from("whatsapp_conversations")
+            .insert({
+              store_id: entry.storeId,
+              wa_contact: senderJid,
+              contact_name: contactName ?? null,
+              last_message_at: now,
+            } as never)
+            .select("id")
+            .single();
+          conversationId = createdConv?.id ?? "";
+        }
+        if (conversationId) {
+          await admin.from("whatsapp_messages").insert({
+            store_id: entry.storeId,
+            conversation_id: conversationId,
+            direction: "inbound",
+            message_type: "text",
+            body,
+            external_message_id: providerMessageId,
+            delivery_status: "received",
+            sent_at: now,
+          } as never);
+        }
+      }
     } else {
       const db = getMockDb();
       const dup = db.whatsapp_messages.find(
@@ -577,20 +619,23 @@ class BaileysWhatsAppRuntime {
 
     const now = new Date().toISOString();
     if (admin && params.conversationId) {
-      await admin.from("whatsapp_outbox").insert({
-        store_id: params.entry.storeId,
-        connection_id: params.entry.connectionId,
-        conversation_id: params.conversationId,
-        idempotency_key: params.idempotencyKey,
-        recipient: params.recipientJid,
-        body: params.body,
-        status,
-        attempts: 1,
-        provider_message_id: status === "sent" ? sentMsgId : null,
-        last_error: errorCode,
-      });
+      await admin
+        .from("whatsapp_outbox")
+        .insert({
+          store_id: params.entry.storeId,
+          connection_id: params.entry.connectionId,
+          conversation_id: params.conversationId,
+          idempotency_key: params.idempotencyKey,
+          recipient: params.recipientJid,
+          body: params.body,
+          status,
+          attempts: 1,
+          provider_message_id: status === "sent" ? sentMsgId : null,
+          last_error: errorCode,
+        })
+        .then(() => undefined, () => undefined);
       if (status === "sent") {
-        await admin.from("whatsapp_messages").insert({
+        const msgInsert = await admin.from("whatsapp_messages").insert({
           store_id: params.entry.storeId,
           connection_id: params.entry.connectionId,
           conversation_id: params.conversationId,
@@ -601,6 +646,18 @@ class BaileysWhatsAppRuntime {
           delivery_status: "sent",
           sent_at: now,
         });
+        if (msgInsert.error) {
+          await admin.from("whatsapp_messages").insert({
+            store_id: params.entry.storeId,
+            conversation_id: params.conversationId,
+            direction: "outbound",
+            message_type: "text",
+            body: params.body,
+            external_message_id: sentMsgId,
+            delivery_status: "sent",
+            sent_at: now,
+          } as never);
+        }
       }
     } else if (!admin && params.conversationId) {
       const db = getMockDb();
@@ -668,13 +725,24 @@ class BaileysWhatsAppRuntime {
     const now = new Date().toISOString();
 
     if (admin) {
-      const {data: existingConv} = await admin
+      const existingQuery = await admin
         .from("whatsapp_conversations")
         .select("id")
         .eq("store_id", storeId)
         .eq("connection_id", connectionId)
         .eq("wa_contact", recipientJid)
         .maybeSingle();
+
+      const existingConv = existingQuery.error
+        ? (
+            await admin
+              .from("whatsapp_conversations")
+              .select("id")
+              .eq("store_id", storeId)
+              .eq("wa_contact", recipientJid)
+              .maybeSingle()
+          ).data
+        : existingQuery.data;
 
       if (existingConv) {
         conversationId = existingConv.id;
@@ -683,7 +751,7 @@ class BaileysWhatsAppRuntime {
           .update({last_message_at: now, updated_at: now})
           .eq("id", conversationId);
       } else {
-        const {data: createdConv} = await admin
+        const createdQuery = await admin
           .from("whatsapp_conversations")
           .insert({
             store_id: storeId,
@@ -694,7 +762,21 @@ class BaileysWhatsAppRuntime {
           })
           .select("id")
           .single();
-        conversationId = createdConv?.id ?? "";
+        if (createdQuery.error) {
+          const fallbackCreate = await admin
+            .from("whatsapp_conversations")
+            .insert({
+              store_id: storeId,
+              wa_contact: recipientJid,
+              contact_name: recipientJid.split("@")[0],
+              last_message_at: now,
+            } as never)
+            .select("id")
+            .single();
+          conversationId = fallbackCreate.data?.id ?? "";
+        } else {
+          conversationId = createdQuery.data?.id ?? "";
+        }
       }
     } else {
       const db = getMockDb();

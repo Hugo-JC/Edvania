@@ -33,9 +33,10 @@ export default async function AssistantPage({searchParams}: Props) {
   const [
     {data: store},
     {data: connections},
-    {data: conversations},
+    conversationsRes,
     {data: products},
     dailyUsed,
+    outboxProbe,
   ] = await Promise.all([
     supabase.from("stores").select("name").eq("id", storeId).single(),
     canManage
@@ -52,7 +53,7 @@ export default async function AssistantPage({searchParams}: Props) {
           .eq("store_id", storeId)
           .order("last_message_at", {ascending: false})
           .limit(12)
-      : Promise.resolve({data: []}),
+      : Promise.resolve({data: [], error: null}),
     supabase
       .from("products")
       .select("id,name,sale_price")
@@ -61,7 +62,23 @@ export default async function AssistantPage({searchParams}: Props) {
       .order("name")
       .limit(50),
     getTodayAiUsageCount(storeId),
+    canManage
+      ? supabase.from("whatsapp_outbox").select("id").eq("store_id", storeId).limit(1)
+      : Promise.resolve({error: null}),
   ]);
+
+  let pendingMigrations = Boolean(conversationsRes.error || outboxProbe.error);
+  let conversations = conversationsRes.data;
+  if (conversationsRes.error && canManage) {
+    pendingMigrations = true;
+    const fallbackConvs = await supabase
+      .from("whatsapp_conversations")
+      .select("id,wa_contact,contact_name,last_message_at")
+      .eq("store_id", storeId)
+      .order("last_message_at", {ascending: false})
+      .limit(12);
+    conversations = (fallbackConvs.data ?? []).map((c) => ({...c, connection_id: ""}));
+  }
 
   const firstConversationId = conversations?.[0]?.id ?? null;
   const {data: messages} =
@@ -101,6 +118,7 @@ export default async function AssistantPage({searchParams}: Props) {
         storeId={storeId}
         storeName={store?.name ?? "A tua loja"}
         role={selected.role}
+        pendingMigrations={pendingMigrations}
         initialHealth={{
           mode: providers.mode,
           primaryProvider: providers.primaryProvider,
