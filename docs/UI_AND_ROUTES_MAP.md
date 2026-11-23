@@ -45,31 +45,43 @@ A interface foi desenhada com estética calma, luminosa e legível para uso cont
 | `/purchases` | `src/app/purchases/page.tsx` + `purchase-form.tsx` + `actions.ts` | Registo de compras a fornecedores com recepção imediata em stock na mesma transacção (`create_purchase_with_audit`). | `owner`, `admin`, `manager` | Ligado a RPC atómica e idempotente |
 | `/cash` | `src/app/cash/page.tsx` + `cash-forms.tsx` + `actions.ts` | Abertura de sessão de caixa, registo de reforços/levantamentos/despesas operacionais (`record_cash_expense_with_audit`) e fecho com confirmação e reconciliação auditada. | `owner`, `admin`, `manager` | Ligado a RPCs auditadas |
 | `/customers` | `src/app/customers/page.tsx` + `actions.ts` | Gestão de clientes e fornecedores (`create_customer_with_audit`, `create_supplier_with_audit`) com cálculo automático de saldo em aberto por cliente (`sales − payments`). | `owner`, `admin`, `manager` | Ligado às tabelas e RPCs da migration `20261121080000` |
-| `/whatsapp` | `src/app/whatsapp/page.tsx` + `actions.ts` | Painel Sandbox do canal WhatsApp: estado da sessão, QR efémero, simulador inbound → assistente → outbox, despacho manual da fila outbox e fluxo de **Operação assistida com confirmação explícita (Meta H)**. | `owner`, `admin`, `manager` | Híbrido (RPCs Supabase / Sandbox em memória); ligação real Baileys pendente de piloto |
-| `/reports` | `src/app/reports/page.tsx` | Consolidação de receitas, compras e despesas em AOA, tabela recente de `audit_logs` e tabela de chamadas do assistente em `ai_usage_logs`. | `owner`, `admin`, `manager` | Leitura real ligada; exportação CSV/PDF e orçamento diário de IA previstos no plano |
-| `/settings` | `src/app/settings/page.tsx` | Dados gerais da loja, caixas registadoras, ligações WhatsApp e membros da equipa (`store_memberships`). | Todos activos | Leitura real ligada; convites de equipa, províncias/municípios e ProxyPay previstos |
+| `/assistant` | `src/app/assistant/page.tsx` + `src/components/assistant-whatsapp-panel.tsx` | **Painel unificado IA e WhatsApp (Baileys):** conversa multi-turno com a IA Edvânia (com tools read-only e diagnóstico `/api/assistant/health`), registo do número WhatsApp da loja, emparelhamento real via Baileys (QR Code PNG), auto-resposta automática e primeiro teste guiado + venda assistida (Meta H). | Todos activos (chat IA scoped por papel); gestão WhatsApp/Baileys restrita a `owner`, `admin`, `manager` | Integrado com `@google/genai` (Gemini), Baileys v7 RC, `baileys_auth_state` cifrado (AES-256-GCM) e RPCs/Sandbox |
+| `/whatsapp` | `src/app/whatsapp/page.tsx` + `actions.ts` | Painel operacional de caixa de mensagens, simulador sandbox, despacho unificado da fila outbox (Baileys + Sandbox) e confirmação assistida (Meta H). | `owner`, `admin`, `manager` | Híbrido (RPCs Supabase / Baileys / Sandbox) |
+| `/reports` | `src/app/reports/page.tsx` + `src/lib/reports-csv.ts` | Consolidação de receitas, compras e despesas em AOA com filtro por datas (`from`/`to`), exportação CSV sanitizada (`/api/reports/export`), tabela de `audit_logs`, quota diária de IA (`500/dia`) e registos em `ai_usage_logs`. | `owner`, `admin`, `manager` | Leitura e exportação ligadas; orçamento diário de IA persistido |
+| `/settings` | `src/app/settings/page.tsx` + `actions.ts` | Edição dos dados comerciais da loja (`updateStoreProfile`), gestão de papéis/estado de membros exclusiva de proprietário (`updateMemberAccess`), caixas e canais WhatsApp. | Todos activos (edição de perfil para gestores; gestão de equipa para `owner`) | Ligado a `stores`, `store_memberships` e `audit_logs` |
 
 ### C. Rotas de API Internas (`src/app/api/*`)
 
 | Rota | Ficheiro | Propósito | Autenticação |
 |---|---|---|---|
+| `GET /api/auth/session` | `src/app/api/auth/session/route.ts` | Verifica estado da sessão e modo activo (`supabase` ou `sandbox`). | Cookie HTTP-only |
+| `GET /api/assistant/health` | `src/app/api/assistant/health/route.ts` | Reporta modelo IA activo, quota diária e executa teste vivo `?probe=1` ao Gemini SDK. | Sessão autenticada (`?probe=1` exige gestor+) |
+| `POST /api/assistant/chat` | `src/app/api/assistant/chat/route.ts` | Chat multi-turno com tools read-only filtradas pelo papel e registo em `ai_usage_logs`. | Sessão autenticada + membership activa |
+| `POST /api/assistant/sale-draft` | `src/app/api/assistant/sale-draft/route.ts` | Prepara, confirma ou cancela vendas assistidas (Meta H) no painel `/assistant`. | Sessão autenticada (`owner`/`admin`/`manager`) |
+| `GET /api/whatsapp/baileys/status` | `src/app/api/whatsapp/baileys/status/route.ts` | Lista ligações, snapshots live (incluindo QR DataURL), conversas e mensagens. | Sessão autenticada (`owner`/`admin`/`manager`) |
+| `POST /api/whatsapp/baileys/register` | `src/app/api/whatsapp/baileys/register/route.ts` | Regista/actualiza o número WhatsApp oficial da loja com normalização E.164/Angola. | Sessão autenticada (`owner`/`admin`/`manager`) |
+| `POST /api/whatsapp/baileys/connect` | `src/app/api/whatsapp/baileys/connect/route.ts` | Inicia sessão real Baileys (gerando QR Code) ou sessão sandbox. | Sessão autenticada (`owner`/`admin`/`manager`) |
+| `POST /api/whatsapp/baileys/disconnect` | `src/app/api/whatsapp/baileys/disconnect/route.ts` | Desliga ou faz logout seguro limpando credenciais Signal/Baileys. | Sessão autenticada (`owner`/`admin`/`manager`) |
+| `POST /api/whatsapp/baileys/auto-reply` | `src/app/api/whatsapp/baileys/auto-reply/route.ts` | Activa ou pausa respostas automáticas da IA no canal WhatsApp. | Sessão autenticada (`owner`/`admin`/`manager`) |
+| `POST /api/whatsapp/baileys/test-send` | `src/app/api/whatsapp/baileys/test-send/route.ts` | Executa envio real via Baileys ou teste guiado inbound → IA → outbox. | Sessão autenticada (`owner`/`admin`/`manager`) |
+| `GET /api/reports/export` | `src/app/api/reports/export/route.ts` | Exporta extracto financeiro CSV com protecção contra formula injection. | Sessão autenticada (`owner`/`admin`/`manager`) |
 | `POST /api/whatsapp/webhook` | `src/app/api/whatsapp/webhook/route.ts` | Recebe eventos de mensagens inbound, valida assinatura HMAC-SHA256, resolve `store_id` pela ligação persistida e enfileira de forma idempotente. | Cabeçalho `x-edvania-signature` (`WHATSAPP_WEBHOOK_SECRET`) |
-| `POST /api/whatsapp/outbox/dispatch` | `src/app/api/whatsapp/outbox/dispatch/route.ts` | Despacha lotes da fila `whatsapp_outbox` respeitando leases e o estado da sessão. | Bearer `WHATSAPP_WORKER_SECRET` ou sessão autenticada (`owner`/`admin`/`manager`) |
+| `POST /api/whatsapp/outbox/dispatch` | `src/app/api/whatsapp/outbox/dispatch/route.ts` | Despacha lotes da fila `whatsapp_outbox` respeitando leases e o sender unificado (Baileys + Sandbox). | Bearer `WHATSAPP_WORKER_SECRET` ou sessão autenticada (`owner`/`admin`/`manager`) |
 
 ---
 
 ## 3. Componentes Partilhados (`src/components/`)
 
-- `src/components/workspace-shell.tsx` — Estrutura lateral e barra superior de todas as rotas autenticadas do painel.
+- `src/components/workspace-shell.tsx` — Estrutura lateral e barra superior de todas as rotas autenticadas do painel (incluindo `/assistant`).
+- `src/components/assistant-whatsapp-panel.tsx` — Painel dividido interactivo de chat com a IA Edvânia e gestão completa do canal WhatsApp/Baileys.
 - `src/components/motion-primitives.tsx` — Wrappers suaves (`PageEntrance`, `SmoothCard`) com `motion/react` e suporte a redução de movimento.
 - `src/components/landing-preview.tsx` — Demonstração interactiva por separadores na página inicial (`/`).
 - `src/components/auth-form.tsx` — Formulário partilhado entre `/login` e `/register`.
 
 ---
 
-## 4. Extensões Futuras Previstas (sem UI quebrada)
+## 4. Extensões Adicionais Previstas
 
-Com base em `docs/DATABASE.md` e `docs/PLANO_AUTONOMO_EDVANIA_V2_COPILOT.md`, quando os respectivos serviços de backend forem activados:
-1. **Em `/settings`:** formulários de edição do perfil fiscal da loja, selecção oficial de `angola_provinces` / `angola_municipalities`, gestão de convites de equipa (exclusiva de `owner`) e configuração de `proxypay_payments` / Multicaixa Express.
-2. **Em `/reports`:** filtro por datas, exportação de extractos financeiros e visualização de limites diários de consumo de IA por loja.
-3. **Em `/whatsapp`:** associação verificada entre número WhatsApp e membro/cliente da loja, plus ligação ao adapter Baileys real após validação dos critérios de `docs/WHATSAPP_PILOT_CHECKLIST.md`.
+1. **Em `/settings`:** selecção oficial de `angola_provinces` / `angola_municipalities` e configuração de `proxypay_payments` / Multicaixa Express (edição de perfil e gestão de papéis da equipa já concluídas).
+2. **Em `/reports`:** exportação PDF complementar (filtros por datas, exportação CSV e orçamento diário de IA já concluídos).
+3. **Em produção Supabase:** executar as migrations e testes SQL (`supabase/migrations/*.sql`, `supabase/tests/*.sql`) num projecto Supabase ou PostgreSQL isolado e configurar `SUPABASE_SECRET_KEY` + `WHATSAPP_CREDENTIALS_KEYRING` para persistência cifrada entre reinícios do servidor.

@@ -126,11 +126,18 @@ export default async function WhatsAppPage({searchParams}: Props) {
       role={selected.role}
     >
       <div className="dashboard-content">
-        <p className="eyebrow">Atendimento WhatsApp · Sandbox</p>
-        <h1>Ligação e caixa de mensagens.</h1>
-        <p className="muted">
-          Painel operacional em modo sandbox para validar ciclo de sessão, QR efémero, recepção normalizada, assistente read-only e fila outbox sem ligar números reais.
-        </p>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="eyebrow">Atendimento WhatsApp · Caixa e Fila Outbox</p>
+            <h1>Ligação e caixa de mensagens.</h1>
+            <p className="muted">
+              Painel operacional de fila outbox, simulação sandbox e confirmação assistida. Para ligar um número real via Baileys (QR Code) e conversar directamente com a IA, usa o novo painel unificado.
+            </p>
+          </div>
+          <Link href={`/assistant?store=${storeId}`} className="primary-button shrink-0">
+            Abrir painel Assistente IA e Baileys
+          </Link>
+        </div>
 
         {params.error && (
           <p className="error" role="alert">

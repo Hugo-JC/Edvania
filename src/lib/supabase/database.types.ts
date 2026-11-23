@@ -120,6 +120,62 @@ export type Database = {
         }
         Relationships: []
       }
+      assistant_confirmations: {
+        Row: {
+          consumed_at: string | null
+          conversation_id: string
+          created_at: string
+          expires_at: string
+          fingerprint: string
+          id: string
+          idempotency_key: string
+          operation: string
+          result_json: Json | null
+          status: string
+          store_id: string
+          token_hash: string
+          user_id: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          conversation_id: string
+          created_at?: string
+          expires_at: string
+          fingerprint: string
+          id?: string
+          idempotency_key: string
+          operation: string
+          result_json?: Json | null
+          status?: string
+          store_id: string
+          token_hash: string
+          user_id: string
+        }
+        Update: {
+          consumed_at?: string | null
+          conversation_id?: string
+          created_at?: string
+          expires_at?: string
+          fingerprint?: string
+          id?: string
+          idempotency_key?: string
+          operation?: string
+          result_json?: Json | null
+          status?: string
+          store_id?: string
+          token_hash?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assistant_confirmations_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -1756,6 +1812,52 @@ export type Database = {
       }
     }
     Functions: {
+      consume_assistant_confirmation: {
+        Args: {
+          p_conversation_id: string
+          p_fingerprint: string
+          p_now: string
+          p_operation: string
+          p_store_id: string
+          p_token_hash: string
+          p_user_id: string
+        }
+        Returns: string | null
+      }
+      create_assistant_confirmation: {
+        Args: {
+          p_conversation_id: string
+          p_expires_at: string
+          p_fingerprint: string
+          p_idempotency_key: string
+          p_operation: string
+          p_store_id: string
+          p_token_hash: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      get_assistant_confirmation_result: {
+        Args: {
+          p_conversation_id: string
+          p_operation: string
+          p_store_id: string
+          p_token_hash: string
+          p_user_id: string
+        }
+        Returns: Json | null
+      }
+      save_assistant_confirmation_result: {
+        Args: {
+          p_conversation_id: string
+          p_operation: string
+          p_result_json: Json
+          p_store_id: string
+          p_token_hash: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       close_cash_session_with_audit: {
         Args: {
           p_counted_amount: number
@@ -1929,9 +2031,9 @@ export type Database = {
           p_store_id: string
           p_tax_number?: string
         }
-        mark_expired_whatsapp_outbox_unknown: { Args: { p_store_id: string }; Returns: number }
         Returns: string
       }
+      mark_expired_whatsapp_outbox_unknown: { Args: { p_store_id: string }; Returns: number }
       create_store_for_current_user: {
         Args: { p_name: string }
         Returns: string
@@ -2000,9 +2102,9 @@ export type Database = {
           p_store_id: string
           p_unit_cost?: number
         }
-        reap_expired_whatsapp_jobs: { Args: { p_store_id: string }; Returns: number }
         Returns: string
       }
+      reap_expired_whatsapp_jobs: { Args: { p_store_id: string }; Returns: number }
       record_cash_movement: {
         Args: { p_amount: number; p_description: string; p_direction: string; p_idempotency_key?: string; p_movement_type: string; p_session_id: string; p_store_id: string }
         Returns: string

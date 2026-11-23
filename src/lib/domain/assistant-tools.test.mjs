@@ -64,3 +64,42 @@ test("assistant tool failures remain failures and stock output omits location id
     data: [{product_id: "33333333-3333-4333-8333-333333333333", quantity_on_hand: 8}],
   });
 });
+
+test("assistant tools support expanded read-only commercial queries safely", async () => {
+  const {handlers} = createHandlers();
+  const extendedHandlers = {
+    ...handlers,
+    async getStoreSummary() {
+      return {
+        ok: true,
+        data: {
+          store: {id: context.storeId, name: "Loja Central", currency_code: "AOA"},
+          productCount: 4,
+          customerCount: 2,
+          salesCount: 3,
+          salesTotal: 15000,
+          purchasesCount: 1,
+          openCashSessions: 1,
+        },
+      };
+    },
+    async searchCustomers() {
+      return {ok: true, data: [{id: "cust-1", name: "Ana Silva", phone_e164: "+244923000111", email: "ana@ao.test"}]};
+    },
+    async getCashRegisterStatus() {
+      return {ok: true, data: [{id: "sess-1", register_id: "reg-1", opening_amount: 5000, opened_at: "2026-11-23T08:00:00Z"}]};
+    },
+  };
+
+  const summary = await executeAssistantTool(context, "get_store_summary", {}, extendedHandlers);
+  assert.equal(summary.ok, true);
+
+  const customers = await executeAssistantTool(context, "search_customers", {query: "Ana"}, extendedHandlers);
+  assert.deepEqual(customers, {
+    ok: true,
+    data: [{id: "cust-1", name: "Ana Silva"}],
+  });
+
+  const cash = await executeAssistantTool(context, "get_cash_register_status", {}, extendedHandlers);
+  assert.equal(cash.ok, true);
+});

@@ -186,6 +186,9 @@ export function parseSessionCookie(raw: string | undefined): MockUserSession | n
 
 type QueryFilter =
   | { type: "eq"; column: string; value: unknown }
+  | { type: "neq"; column: string; value: unknown }
+  | { type: "gte"; column: string; value: unknown }
+  | { type: "lte"; column: string; value: unknown }
   | { type: "in"; column: string; values: unknown[] }
   | { type: "is"; column: string; value: null | boolean }
   | { type: "ilike"; column: string; pattern: string };
@@ -208,6 +211,8 @@ function createQueryBuilder(tableName: string, db: MockDb, cookies: CookieAdapte
   let headOnly = false;
   let wantCount = false;
   let upsertPayload: { rows: RowRecord[]; onConflict?: string } | null = null;
+  let insertPayload: RowRecord[] | null = null;
+  let updatePayload: RowRecord | null = null;
 
   const tableRows = (): RowRecord[] => {
     const table = (db as unknown as Record<string, unknown>)[tableName];
@@ -220,6 +225,35 @@ function createQueryBuilder(tableName: string, db: MockDb, cookies: CookieAdapte
         .filter((m) => m.user_id === userId && m.status === "active")
         .map((m) => String(m.store_id)),
     );
+  };
+
+  const getRoleForStore = (userId: string, storeId: string): string | null => {
+    const row = db.store_memberships.find(
+      (m) => m.user_id === userId && m.store_id === storeId && m.status === "active",
+    );
+    return row ? String(row.role) : null;
+  };
+
+  const applyRowFilters = (input: RowRecord[]) => {
+    let rows = [...input];
+    for (const filter of filters) {
+      if (filter.type === "eq") {
+        rows = rows.filter((row) => row[filter.column] === filter.value);
+      } else if (filter.type === "neq") {
+        rows = rows.filter((row) => row[filter.column] !== filter.value);
+      } else if (filter.type === "gte") {
+        rows = rows.filter((row) => String(row[filter.column] ?? "") >= String(filter.value ?? ""));
+      } else if (filter.type === "lte") {
+        rows = rows.filter((row) => String(row[filter.column] ?? "") <= String(filter.value ?? ""));
+      } else if (filter.type === "in") {
+        rows = rows.filter((row) => filter.values.includes(row[filter.column]));
+      } else if (filter.type === "is") {
+        rows = rows.filter((row) => (filter.value === null ? row[filter.column] == null : row[filter.column] === filter.value));
+      } else if (filter.type === "ilike") {
+        rows = rows.filter((row) => matchesIlike(row[filter.column], filter.pattern));
+      }
+    }
+    return rows;
   };
 
   const execute = (): QueryResult<unknown> => {
@@ -248,6 +282,74 @@ function createQueryBuilder(tableName: string, db: MockDb, cookies: CookieAdapte
       return { data: upsertPayload.rows, error: null };
     }
 
+    if (insertPayload) {
+      if (tableName !== "whatsapp_connections") {
+        return { data: null, error: { message: "forbidden" } };
+      }
+      const target = tableRows();
+      const inserted: RowRecord[] = [];
+      const now = new Date().toISOString();
+      for (const row of insertPayload) {
+        const storeId = String(row.store_id ?? "");
+        const role = getRoleForStore(session.id, storeId);
+        if (!role || !["owner", "admin", "manager"].includes(role)) {
+          return { data: null, error: { message: "forbidden" } };
+        }
+        const record: RowRecord = {
+          id: makeUuid(),
+          created_at: now,
+          updated_at: now,
+          ...row,
+        };
+        target.push(record);
+        inserted.push(record);
+      }
+      if (singleMode === "single" || singleMode === "maybe") {
+        return { data: inserted[0] ?? null, error: null };
+      }
+      return { data: inserted, error: null };
+    }
+
+    if (updatePayload) {
+      const target = tableRows();
+      const allowedStoreIds = getAllowedStoreIds(session.id);
+      const scoped = target.filter((row) => {
+        if (tableName === "stores") return allowedStoreIds.has(String(row.id));
+        if (tableName === "store_memberships") return allowedStoreIds.has(String(row.store_id));
+        if (tableName === "whatsapp_connections") return allowedStoreIds.has(String(row.store_id));
+        return false;
+      });
+      const matched = new Set(applyRowFilters(scoped));
+      if (matched.size === 0) {
+        return { data: singleMode === "none" ? [] : null, error: null };
+      }
+      for (const row of matched) {
+        const storeId = tableName === "stores" ? String(row.id) : String(row.store_id);
+        const role = getRoleForStore(session.id, storeId);
+        if (tableName === "store_memberships") {
+          if (role !== "owner") {
+            return { data: null, error: { message: "forbidden" } };
+          }
+        } else if (tableName === "stores" || tableName === "whatsapp_connections") {
+          if (!role || !["owner", "admin", "manager"].includes(role)) {
+            return { data: null, error: { message: "forbidden" } };
+          }
+        } else {
+          return { data: null, error: { message: "forbidden" } };
+        }
+      }
+      const updatedRows: RowRecord[] = [];
+      const now = new Date().toISOString();
+      for (const row of matched) {
+        Object.assign(row, updatePayload, { updated_at: now });
+        updatedRows.push(row);
+      }
+      if (singleMode === "single" || singleMode === "maybe") {
+        return { data: updatedRows[0] ?? null, error: null };
+      }
+      return { data: updatedRows, error: null };
+    }
+
     const allowedStoreIds = getAllowedStoreIds(session.id);
     let rows = [...tableRows()];
 
@@ -264,17 +366,7 @@ function createQueryBuilder(tableName: string, db: MockDb, cookies: CookieAdapte
       rows = rows.filter((row) => allowedStoreIds.has(String(row.store_id)));
     }
 
-    for (const filter of filters) {
-      if (filter.type === "eq") {
-        rows = rows.filter((row) => row[filter.column] === filter.value);
-      } else if (filter.type === "in") {
-        rows = rows.filter((row) => filter.values.includes(row[filter.column]));
-      } else if (filter.type === "is") {
-        rows = rows.filter((row) => (filter.value === null ? row[filter.column] == null : row[filter.column] === filter.value));
-      } else if (filter.type === "ilike") {
-        rows = rows.filter((row) => matchesIlike(row[filter.column], filter.pattern));
-      }
-    }
+    rows = applyRowFilters(rows);
     const totalCount = rows.length;
     if (orderBy) {
       const { column, ascending } = orderBy;
@@ -314,6 +406,18 @@ function createQueryBuilder(tableName: string, db: MockDb, cookies: CookieAdapte
       filters.push({ type: "eq", column, value });
       return builder;
     },
+    neq(column: string, value: unknown) {
+      filters.push({ type: "neq", column, value });
+      return builder;
+    },
+    gte(column: string, value: unknown) {
+      filters.push({ type: "gte", column, value });
+      return builder;
+    },
+    lte(column: string, value: unknown) {
+      filters.push({ type: "lte", column, value });
+      return builder;
+    },
     in(column: string, values: unknown[]) {
       filters.push({ type: "in", column, values });
       return builder;
@@ -344,6 +448,14 @@ function createQueryBuilder(tableName: string, db: MockDb, cookies: CookieAdapte
     },
     maybeSingle() {
       singleMode = "maybe";
+      return builder;
+    },
+    insert(values: RowRecord | RowRecord[]) {
+      insertPayload = Array.isArray(values) ? values : [values];
+      return builder;
+    },
+    update(values: RowRecord) {
+      updatePayload = values;
       return builder;
     },
     upsert(values: RowRecord | RowRecord[], options?: { onConflict?: string }) {

@@ -87,7 +87,7 @@ test("deterministic sandbox provider blocks mutating commands and queries catalo
   assert.deepEqual(lookup, {toolCalls: [{name: "search_products", arguments: {query: "arroz", limit: 5}}]});
 });
 
-test("resolveAssistantProvidersFromEnv defaults to gemini-2.5-flash-lite primary and gpt-4o-mini fallback", async () => {
+test("resolveAssistantProvidersFromEnv defaults to gemini-4-hydrogen primary and gpt-4o-mini fallback", async () => {
   const sandbox = resolveAssistantProvidersFromEnv({});
   assert.equal(sandbox.mode, "sandbox");
   assert.equal(sandbox.fallback, undefined);
@@ -107,7 +107,7 @@ test("resolveAssistantProvidersFromEnv defaults to gemini-2.5-flash-lite primary
     },
   );
   assert.equal(configured.mode, "configured");
-  assert.equal(configured.primaryModel, "gemini-2.5-flash-lite");
+  assert.equal(configured.primaryModel, "gemini-4-hydrogen");
   assert.equal(configured.fallbackModel, "gpt-4o-mini");
 
   const controller = new AbortController();
@@ -121,6 +121,6 @@ test("resolveAssistantProvidersFromEnv defaults to gemini-2.5-flash-lite primary
   await configured.primary.generate(req, controller.signal);
   await configured.fallback?.generate(req, controller.signal);
 
-  assert.match(calledUrls[0], /models\/gemini-2\.5-flash-lite:generateContent$/);
+  assert.match(calledUrls[0], /models\/gemini-4-hydrogen:generateContent$/);
   assert.equal(calledUrls[1], "https://api.openai.com/v1/chat/completions");
 });

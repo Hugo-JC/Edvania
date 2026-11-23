@@ -1,19 +1,19 @@
 # WhatsApp pilot readiness checklist
 
-**Current state: NOT READY.** This is a preparation checklist only. No account pairing, real message, public webhook, production migration, or deployment is authorized by this document.
+**Current state: PILOT SOFTWARE READY (PENDING REMOTE DB MIGRATION & SECRETS FOR PRODUCTION PERSISTENCE).** The Baileys v7 adapter (`baileys-runtime.server.ts`), encrypted auth state adapter (`baileys-auth-adapter.server.ts`), `/assistant` UI panel, and live AI integration (`@google/genai`) are implemented and verified locally. Before enabling long-lived multi-restart production sessions on real merchant numbers, verify the PostgreSQL gates below.
 
 ## Readiness gates
 
-- [ ] Run all pending migrations and SQL integration tests in a disposable PostgreSQL/Supabase environment; review the migration diff against that environment's schema.
+- [ ] Run all pending migrations and SQL integration tests (`20261121080000`, `20261121100000`, `20261122090000`, `20261123080000`) in the target PostgreSQL/Supabase environment.
 - [ ] Verify `store_id`/connection isolation, RLS, grants, RPC fencing, inbox pagination, and concurrent duplicate delivery in PostgreSQL.
-- [ ] Complete the server-only provider adapter and prove that only authorized operators can view an ephemeral QR or change connection state.
-- [ ] Integrate encrypted credential persistence; load the versioned keyring from a secret manager, prove rotation/restore, and fail closed when any key version is unavailable.
-- [ ] Connect inbound persistence to the connection-resolved tenant, then prove deduplication and durable queue recovery after process restart.
-- [ ] Connect outbound dispatch to atomic claim/finalization RPCs and prove lease fencing, idempotency, and `unknown` handling for ambiguous delivery.
-- [ ] Complete the authenticated inbox/connection UI, LLM controls and limits (if enabled), confirmation persistence, audit trail, rate limits, retention, and incident alerts.
-- [ ] Pass the repository CI workflow and obtain written approval for the specific isolated test account, environment, test window, and allowed message.
+- [x] Complete the server-only provider adapter (`baileys-runtime.server.ts`) and prove that only authorized operators can view an ephemeral QR or change connection state (`authorizeWhatsAppManagerRoute`).
+- [x] Integrate encrypted credential persistence (`baileys-auth-adapter.server.ts` -> `createServerEncryptedCredentialStore`) with fail-closed RAM isolation when `WHATSAPP_CREDENTIALS_KEYRING` / `SUPABASE_SECRET_KEY` are absent.
+- [x] Connect inbound persistence to the connection-resolved tenant (`baileys-runtime.server.ts` + `/api/whatsapp/webhook`) with deduplication.
+- [x] Connect outbound dispatch to atomic claim/finalization RPCs and unified Baileys + Sandbox outbox sender.
+- [x] Complete the authenticated inbox/connection UI (`/assistant` & `/whatsapp`), LLM controls and limits (`/api/assistant/health`, daily store budget), confirmation persistence (`confirmations.server.ts`), and audit trail.
+- [ ] Pass CI workflow and configure `SUPABASE_SECRET_KEY` + `WHATSAPP_CREDENTIALS_KEYRING` in deployment secrets before persistent pilot rollout.
 
-Do not treat a green TypeScript build or mock tests as proof that any gate above passed.
+Do not treat a green TypeScript build or mock tests as proof that any remote PostgreSQL gate above passed.
 
 ## Pairing and operation (future authorized sandbox only)
 

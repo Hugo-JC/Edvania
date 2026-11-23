@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowRight, MessageSquare, Package, ShoppingBag, Truck, Users, Wallet } from "lucide-react";
+import { ArrowRight, Bot, MessageSquare, Package, ShoppingBag, Truck, Users, Wallet } from "lucide-react";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { createClient } from "@/lib/supabase/server";
 
@@ -137,6 +137,17 @@ export default async function DashboardPage({ searchParams }: Props) {
             <span>{selectedStore?.currency_code ?? "AOA"}</span>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Link
+              href={`/assistant?store=${storeId}`}
+              className="flex items-center justify-between rounded-xl border border-[#146C53]/30 bg-[#EAF4F0] px-4 py-3.5 text-[#0F5340] no-underline transition-colors hover:border-[#146C53]/60 hover:bg-[#DCEEE6]"
+            >
+              <span className="flex items-center gap-3 text-[14px] font-semibold">
+                <Bot className="h-4 w-4 text-[#146C53]" aria-hidden="true" />
+                Conversar com IA e WhatsApp
+              </span>
+              <ArrowRight className="h-4 w-4 text-[#0F5340]" aria-hidden="true" />
+            </Link>
+
             <Link
               href={`/products?store=${storeId}`}
               className="flex items-center justify-between rounded-xl border border-[#E2E7E3] bg-[#F7F8F6] px-4 py-3.5 text-[#15201C] no-underline transition-colors hover:border-[#146C53]/40 hover:bg-[#EAF4F0]"

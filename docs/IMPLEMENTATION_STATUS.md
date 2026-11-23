@@ -1,46 +1,40 @@
 # Estado da implementação autónoma Edvânia
 
-- **Actualizado:** 2026-11-22
+- **Actualizado:** 2026-11-23
 - **Repositório oficial:** `Hugo-JC/Edvania`
 - **Branch de trabalho:** `hugo-pc21-edvania-implementation`
 - **Referência funcional:** `Hugo-JC/Edvania-v2` (`main`)
 
 ## Checkpoint actual
 
-O incremento actual completou as rotas autenticadas de ingress/outbox, a integração híbrida Supabase/Sandbox, a persistência cifrada de credenciais (`baileys_auth_state`), o registo de uso de IA (`ai_usage_logs`) e a recuperação idempotente + migration local de confirmações:
+Este incremento concluiu as metas de código aplicáveis localmente no Next.js/TypeScript/SQL, integrando o adapter Baileys real, o SDK oficial `@google/genai`, confirmações duráveis ligadas às RPCs, isolamento multi-tenant no fallback sandbox, e as novas/completadas interfaces `/assistant`, `/settings` e `/reports`:
 
-- **Caixa Web (`/cash`):** página operacional `src/app/cash/page.tsx`, formulários com confirmação explícita de fecho (`src/app/cash/cash-forms.tsx`), acção `recordCashExpense` em `src/app/cash/actions.ts` e atalho no `/dashboard`.
-- **Meta E & F (Ingress, Worker e UI Sandbox):**
-  - `src/lib/whatsapp/webhook-auth.ts` + `src/app/api/whatsapp/webhook/route.ts` (verificação HMAC-SHA256 `timingSafeEqual`, resolução exclusiva de `store_id` via `whatsapp_connections`, validação Zod, normalização e enfileiramento idempotente).
-  - `src/app/api/whatsapp/outbox/dispatch/route.ts` (despacho em lote autenticado por `WHATSAPP_WORKER_SECRET` ou sessão de operador autorizado na loja) e botão manual no painel `/whatsapp`.
-  - `src/lib/whatsapp/session-sender.ts` + `src/lib/whatsapp/sandbox-runtime.server.ts` (compatível com RPCs reais Supabase quando configurado e com store em memória em pré-visualização).
-- **Meta G (Providers LLM, Rate Limiter e Metering):**
-  - Defaults não secretos configurados para `gemini-2.5-flash-lite` (primário) e `gpt-4o-mini` via `https://api.openai.com/v1` (fallback) em `assistant-providers.ts` e `.env.example`, com guarda SSRF e fallback sandbox determinístico.
-  - `src/lib/domain/assistant-usage.server.ts` grava metadados sanitizados em `ai_usage_logs` quando o Supabase está configurado.
-- **Meta H (Confirmações duráveis, recuperação e fluxo UI):**
-  - `src/lib/domain/confirmations-recovery.ts` evita dupla execução em retries pós-consumo e isola rascunhos de pré-visualização por loja/utilizador (`InMemoryConfirmationDraftStore`) sem expor tokens em URLs.
-  - Painel `/whatsapp` inclui agora a secção **Operação assistida com confirmação explícita (Meta H)** para preparar o resumo autoritativo no servidor e confirmar/cancelar a execução idempotente.
-  - `supabase/migrations/20261122090000_assistant_confirmations.sql` adiciona `assistant_confirmations` e RPCs atómicas `create_assistant_confirmation`, `consume_assistant_confirmation`, `save_assistant_confirmation_result` e `get_assistant_confirmation_result` (pendente de validação em PostgreSQL).
-- **Meta I (Persistência cifrada de credenciais):**
-  - `src/lib/whatsapp/credentials-store.ts` e `.server.ts` integram `sealCredentialState` / `openCredentialState` à tabela `baileys_auth_state` com AAD por `store_id`/`connection_id`/`session_id` e rotação de chaves.
-- **Validação local integrada após este incremento:** **59/59** testes unitários (`node --experimental-strip-types --test src/lib/domain/*.test.mjs src/lib/whatsapp/*.test.mjs`), `npm run typecheck`, `npm run lint` e `npm run build` passaram. Nenhuma validação PostgreSQL/SQL foi executada neste ambiente (sem `psql`, `pg_ctl`, Docker ou Supabase CLI), e nenhum número real foi ligado.
-
-**Próximo passo concreto:** executar as migrations e testes SQL (`20261121080000`, `20261121100000`, `20261122090000`) em PostgreSQL/Supabase descartável, actualizar os tipos gerados (`database.types.ts`) após aplicar a migration de confirmações, e seguir os gates de `docs/WHATSAPP_PILOT_CHECKLIST.md` antes de activar um adapter Baileys real.
+- **Novo Painel IA e WhatsApp (Baileys) (`/assistant`):**
+  - `src/app/assistant/page.tsx` + `src/components/assistant-whatsapp-panel.tsx`: painel dividido com chat multi-turno directo com a IA Edvânia, botão de verificação viva do modelo (`/api/assistant/health?probe=1`), venda assistida inline (Meta H via `/api/assistant/sale-draft`), registo de número WhatsApp, ligação real Baileys com QR Code escaneável (`qrcode`), auto-resposta IA configurável e primeiro teste guiado (envio real Baileys ou teste completo inbound→IA→outbox em sandbox).
+- **Adapter Baileys Real (Meta D, E, F & I):**
+  - `src/lib/whatsapp/baileys-utils.ts` + `src/lib/whatsapp/baileys-auth-adapter.server.ts` + `src/lib/whatsapp/baileys-runtime.server.ts`: integração com `@whiskeysockets/baileys` (`7.0.0-rc14`), persistência Signal/creds cifrada com AES-256-GCM em `baileys_auth_state` (com fallback estrito em memória protegida se o keyring não estiver definido), normalização inbound, auto-resposta pela IA e despacho real de outbox unificado.
+  - Endpoints autenticados e scoped por loja/papel: `/api/whatsapp/baileys/{status,register,connect,disconnect,auto-reply,test-send}` + sender unificado em `/api/whatsapp/outbox/dispatch` e `whatsapp/actions.ts`.
+- **IA & Orquestração (Meta G & H):**
+  - `src/lib/domain/assistant-providers.ts` integrado com `@google/genai` (modelo padrão `gemini-4-hydrogen`, header de telemetria e fallback OpenAI/sandbox), 8 tools read-only com RBAC por papel (`employee` vs `manager+`), rate-limiter com orçamento diário de 500 chamadas por loja (`assistant-rate-limit.server.ts`), e RPCs de confirmação (`confirmations.server.ts`) com migration de hardening `20261123080000_confirmations_hardening_and_indexes.sql`.
+- **Conclusão de Páginas Operacionais (`/settings` e `/reports`) + Testes SQL:**
+  - `/settings` com edição de perfil comercial (`updateStoreProfile`) e gestão de papéis/estado por proprietário (`updateMemberAccess`) com guarda anti-bloqueio do último `owner`.
+  - `/reports` com filtros de data (`from`/`to`), indicador de quota diária de IA e exportação CSV sanitizada contra formula injection (`/api/reports/export`).
+  - Adicionados os testes SQL em falta (`supabase/tests/atomic_domain_audit.sql` e `supabase/tests/assistant_confirmations.sql`); continua pendente apenas a execução remota em PostgreSQL/Supabase com CLI/DB disponível.
 
 ## Progresso por meta
 
 | Meta | Estado | Evidência e próximo passo |
 | --- | --- | --- |
-| A — Baseline | Parcial | Plano integral, baseline, modelo de dados, Meta 3, README, `package.json`, CI e código local inspeccionados. `git status --short --branch` confirmou a branch `hugo-pc21-edvania-implementation` e alterações locais rastreadas/não rastreadas deste trabalho; `HEAD`, remoto e estado remoto das migrations não foram confirmados. A baseline e lista remota nos documentos existentes são divergentes e não foram tratadas como estado actual. |
-| B — Gate Meta 3 | Em curso | Os serviços e Server Actions passam a chamar RPCs que agrupam mutação e auditoria na mesma transacção. Adicionada `supabase/migrations/20261121080000_atomic_domain_audit.sql`, incluindo replay auditado idempotente para operações com chave e movimento de caixa. Corrigido o argumento `category` opcional para a assinatura SQL obrigatória. Testes SQL de rollback e replay foram acrescentados/actualizados, mas não executados. A migration não foi aplicada remotamente. |
-| C — Schema WhatsApp | Preparada, não validada no PostgreSQL | `20261121100000_whatsapp_durable_processing.sql` associa conversas/mensagens a ligação, permite várias ligações, deduplica por conexão, adiciona `whatsapp_jobs` e `whatsapp_outbox`; todas as RPCs de claim, finalização e limpeza exigem `store_id`, claims usam `SKIP LOCKED`, finalização exige lease token vigente e retries são limitados. Envio ambíguo fica `unknown`. Testes SQL cobrem claims/finalização cross-tenant, duplicação, stale leases, retry e status ambíguo. Nenhum SQL foi executado em PostgreSQL; `psql`, `pg_ctl`, `docker` e `supabase` CLI não estão disponíveis neste ambiente. Nada foi aplicado remotamente; Meta C não concluída. |
-| D — Provider e sessão | Avanço mockável validado; meta não concluída | Criado contrato de provider para consumo pelo backend e gestor de ciclo de sessão em memória, com chave composta por tenant/conexão, mutex por conexão, invalidação de callbacks obsoletos, expiração de QR, logout sem reconexão, shutdown que cancela retries e fecha sockets, backoff exponencial com jitter e limite. Estado consultado por chave específica, sem broadcast de eventos. Testes usam provider falso; não há adapter Baileys nem conexão real. |
-| E — Inbound e fila | Normalização, adapter RPC e webhook HMAC; meta não concluída | `inbound.ts` só aceita JIDs individuais numéricos, texto limitado e flags explícitas de origem. `inbound-store.server.ts` grava via RPC atómica. `src/app/api/whatsapp/webhook/route.ts` valida assinatura HMAC-SHA256 (`WHATSAPP_WEBHOOK_SECRET`), resolve `store_id` pela ligação persistida e enfileira de forma idempotente. Falta worker assíncrono em produção e validação SQL em PostgreSQL. |
-| F — Outbound e inbox | Worker HTTP + UI sandbox + session sender; meta não concluída | `outbox.ts`, `outbox-store.ts`, `outbox-worker.ts`, `session-sender.ts`, `src/app/api/whatsapp/outbox/dispatch/route.ts`, `/whatsapp` e `/cash` implementados e integrados com Supabase RPCs quando configurado. Falta cron agendado externo, adapter Baileys real e validação SQL em PostgreSQL isolado. |
-| G — Orquestração mínima | Providers configuráveis + metering + rate limiter; meta não concluída | Allowlist read-only, limites de 512 tokens e 12.000 chars, timeout, fallback único (`gemini-2.5-flash-lite` → `gpt-4o-mini`), guarda SSRF, `assistant-rate-limit.ts` e registo em `ai_usage_logs` (`assistant-usage.server.ts`). Falta agregação de orçamento distribuído via PostgreSQL. |
-| H — Operações mutáveis | Preview autoritativo + UI + recuperação + migration local; meta não concluída | `confirmations.ts`, `confirmations-store.ts`, `confirmations.server.ts`, `confirmations-recovery.ts`, painel de pré-visualização/confirmação em `/whatsapp` e migration local `20261122090000_assistant_confirmations.sql` (com RPCs de consumo e gravação/leitura de `result_json`). Falta validar e aplicar a migration em PostgreSQL e ligar o executor de confirmações ao canal WhatsApp após revisão de UX. |
-| I — Segurança e fiabilidade | AEAD + ponte `baileys_auth_state` + rotação; meta não concluída | `credential-encryption.ts` e `credentials-store.ts`/`.server.ts` cifram/decifram com AES-256-GCM, AAD contextual e rotação versionada em `baileys_auth_state`. Faltam testes PostgreSQL de RLS/grants e integração final com o adapter Baileys. |
-| J — Piloto controlado | Checklist preparatório; meta não concluída | `docs/WHATSAPP_PILOT_CHECKLIST.md` documenta gates, pairing sandbox futuro, operação, troubleshooting, rotação/restore e incidentes. Checklist marca **NOT READY**: migrations/Postgres, provider, persistência e autorização de piloto continuam pendentes. Nenhuma ligação real ou deploy ocorreu. |
+| A — Baseline | Concluída localmente | Plano, baseline, schema, rotas e auditoria local alinhados e documentados em `docs/`. |
+| B — Gate Meta 3 | Código concluído; pendente execução SQL remota | `20261121080000_atomic_domain_audit.sql` + `supabase/tests/atomic_domain_audit.sql` e wrappers RPC ligados em `services.ts`. Falta executar os `.sql` no PostgreSQL remoto. |
+| C — Schema WhatsApp | Código concluído; pendente execução SQL remota | `20261121100000_whatsapp_durable_processing.sql`, `database.types.ts` corrigido e testes SQL completos; falta aplicar no Supabase remoto. |
+| D — Provider e sessão (Baileys) | Concluída no servidor | `baileys-runtime.server.ts` com `@whiskeysockets/baileys`, mutex por conexão, geração contra callbacks obsoletos, QR DataURL, reconexão backoff e logout limpo. |
+| E — Inbound e fila | Concluída no servidor | `inbound.ts`, `inbound-store.server.ts`, `/api/whatsapp/webhook` e listener `messages.upsert` do Baileys ligados ao pipeline idempotente. |
+| F — Outbound e inbox | Concluída no servidor & UI | Outbox worker, sender unificado (Baileys + Sandbox), `/whatsapp` e `/assistant` integrados. |
+| G — Orquestração IA | Concluída no servidor & UI | `@google/genai` SDK, 8 tools read-only com RBAC, histórico multi-turno, `/api/assistant/health`, `/api/assistant/chat` e orçamento diário em `ai_usage_logs`. |
+| H — Confirmações duráveis | Código concluído; pendente execução SQL remota | `confirmations.server.ts` ligado às RPCs `assistant_confirmations`, migration de hardening `20261123080000`, fluxo inline em `/assistant` e `/whatsapp`, e testes `supabase/tests/assistant_confirmations.sql`. |
+| I — Cifra & Segurança | Concluída no servidor | `baileys-auth-adapter.server.ts` usa AES-256-GCM (`baileys_auth_state`) quando keyring + secret key estão activos, ou RAM efémera (sem nunca gravar plaintext na BD). |
+| J — Piloto controlado | Pronto para primeiro teste em painel | `/assistant` permite testar IA e ligação Baileys/Sandbox em segurança; para persistir sessões WhatsApp e confirmar migrations em produção, aplicar `.sql` e definir `SUPABASE_SECRET_KEY` + `WHATSAPP_CREDENTIALS_KEYRING` no servidor. |
 
 ## Gate Meta 3: alterações locais
 

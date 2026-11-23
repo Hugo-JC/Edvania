@@ -4,6 +4,7 @@ import {isSupabaseConfigured} from "@/lib/env";
 import {createClient} from "@/lib/supabase/server";
 import {createServerWhatsAppOutboxStore} from "@/lib/whatsapp/outbox-store.server";
 import {dispatchOutboxBatch} from "@/lib/whatsapp/outbox-worker";
+import {getBaileysWhatsAppRuntime} from "@/lib/whatsapp/baileys-runtime.server";
 import {getSandboxWhatsAppRuntime} from "@/lib/whatsapp/sandbox-runtime.server";
 import {verifyBearerSecret} from "@/lib/whatsapp/webhook-auth";
 
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
       storeId,
       leaseOwner,
       store,
-      runtime.createOutboxSender(),
+      getBaileysWhatsAppRuntime().createUnifiedOutboxSender(),
       {limit, leaseSeconds: 60},
     );
 

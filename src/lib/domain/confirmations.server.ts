@@ -1,14 +1,19 @@
 import "server-only";
+import {createHash} from "node:crypto";
 import type {SupabaseClient} from "@supabase/supabase-js";
-import type {Database} from "@/lib/supabase/database.types";
+import {getSupabaseAdminClient} from "@/lib/supabase/admin";
+import type {Database, Json} from "@/lib/supabase/database.types";
 import {
   ConfirmationError,
   type ConfirmationContext,
   type ConfirmationOperation,
+  type ConfirmationStore,
   type ConfirmedOperationExecutor,
+  type ConsumeConfirmation,
   type OperationPreviewer,
+  type PendingConfirmation,
 } from "./confirmations";
-import {failure, type ToolContext} from "./contracts";
+import {failure, type DomainResult, type ToolContext} from "./contracts";
 import {
   closeCashSession,
   createPurchase,
@@ -19,6 +24,7 @@ import {
 import {
   InMemoryConfirmationDraftStore,
   InMemoryConfirmationRecoveryStore,
+  type ConfirmationResultRecoveryStore,
 } from "./confirmations-recovery";
 import {InMemoryConfirmationStore} from "./confirmations-store";
 
@@ -28,18 +34,127 @@ const globalConfirmations = globalThis as unknown as {
   __edvaniaConfirmationDraftStore?: InMemoryConfirmationDraftStore;
 };
 
-export function getSharedConfirmationStore(): InMemoryConfirmationStore {
+function getMemoryConfirmationStore(): InMemoryConfirmationStore {
   if (!globalConfirmations.__edvaniaConfirmationStore) {
     globalConfirmations.__edvaniaConfirmationStore = new InMemoryConfirmationStore();
   }
   return globalConfirmations.__edvaniaConfirmationStore;
 }
 
-export function getSharedConfirmationRecoveryStore(): InMemoryConfirmationRecoveryStore {
+function getMemoryRecoveryStore(): InMemoryConfirmationRecoveryStore {
   if (!globalConfirmations.__edvaniaConfirmationRecoveryStore) {
     globalConfirmations.__edvaniaConfirmationRecoveryStore = new InMemoryConfirmationRecoveryStore();
   }
   return globalConfirmations.__edvaniaConfirmationRecoveryStore;
+}
+
+function isRpcMissingError(message: string | undefined): boolean {
+  if (!message) return false;
+  return /PGRST202|Could not find the function|does not exist/i.test(message);
+}
+
+export function getSharedConfirmationStore(): ConfirmationStore {
+  const memoryStore = getMemoryConfirmationStore();
+  const admin = getSupabaseAdminClient();
+  if (!admin) {
+    return memoryStore;
+  }
+
+  return {
+    async createPending(record: PendingConfirmation) {
+      const {error} = await admin.rpc("create_assistant_confirmation", {
+        p_token_hash: record.tokenHash,
+        p_store_id: record.tenantId,
+        p_user_id: record.userId,
+        p_conversation_id: record.conversationId,
+        p_operation: record.operation,
+        p_fingerprint: record.fingerprint,
+        p_idempotency_key: record.idempotencyKey,
+        p_expires_at: record.expiresAt,
+      });
+      if (!error) return;
+      if (isRpcMissingError(error.message)) {
+        await memoryStore.createPending(record);
+        return;
+      }
+      throw new ConfirmationError("invalid_intent");
+    },
+    async consumePending(input: ConsumeConfirmation) {
+      const {data, error} = await admin.rpc("consume_assistant_confirmation", {
+        p_token_hash: input.tokenHash,
+        p_store_id: input.tenantId,
+        p_user_id: input.userId,
+        p_conversation_id: input.conversationId,
+        p_operation: input.operation,
+        p_fingerprint: input.fingerprint,
+        p_now: input.now,
+      });
+      if (!error) {
+        return typeof data === "string" ? data : null;
+      }
+      if (isRpcMissingError(error.message)) {
+        return memoryStore.consumePending(input);
+      }
+      return null;
+    },
+  };
+}
+
+function parseRecoveryKey(key: string): {
+  tenantId: string;
+  userId: string;
+  conversationId: string;
+  operation: string;
+  tokenHash: string;
+} | null {
+  const parts = key.split(":");
+  if (parts.length !== 5) return null;
+  const [tenantId, userId, conversationId, operation, token] = parts;
+  if (!tenantId || !userId || !conversationId || !operation || !token) return null;
+  const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
+  return {tenantId, userId, conversationId, operation, tokenHash};
+}
+
+export function getSharedConfirmationRecoveryStore(): ConfirmationResultRecoveryStore {
+  const memoryStore = getMemoryRecoveryStore();
+  const admin = getSupabaseAdminClient();
+  if (!admin) {
+    return memoryStore;
+  }
+
+  return {
+    async getResult(key, nowMs) {
+      const parsedKey = parseRecoveryKey(key);
+      if (!parsedKey) return memoryStore.getResult(key, nowMs);
+      const {data, error} = await admin.rpc("get_assistant_confirmation_result", {
+        p_token_hash: parsedKey.tokenHash,
+        p_store_id: parsedKey.tenantId,
+        p_user_id: parsedKey.userId,
+        p_conversation_id: parsedKey.conversationId,
+        p_operation: parsedKey.operation,
+      });
+      if (error && isRpcMissingError(error.message)) {
+        return memoryStore.getResult(key, nowMs);
+      }
+      if (!error && data && typeof data === "object" && !Array.isArray(data) && "ok" in data) {
+        return data as unknown as DomainResult<unknown>;
+      }
+      return memoryStore.getResult(key, nowMs);
+    },
+    async saveResult(key, result, expiresAtMs) {
+      await memoryStore.saveResult(key, result, expiresAtMs);
+      const parsedKey = parseRecoveryKey(key);
+      if (!parsedKey) return;
+      await admin.rpc("save_assistant_confirmation_result", {
+        p_token_hash: parsedKey.tokenHash,
+        p_store_id: parsedKey.tenantId,
+        p_user_id: parsedKey.userId,
+        p_conversation_id: parsedKey.conversationId,
+        p_operation: parsedKey.operation,
+        p_result_json: result as unknown as Json,
+      });
+    },
+  };
 }
 
 export function getSharedConfirmationDraftStore(): InMemoryConfirmationDraftStore {

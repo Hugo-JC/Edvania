@@ -1,17 +1,37 @@
+import {GoogleGenAI, type FunctionDeclaration} from "@google/genai";
 import {z} from "zod";
 import type {AssistantProvider, AssistantProviderRequest} from "./assistant-orchestration.ts";
 import type {AssistantToolName} from "./assistant-tools.ts";
 
-const allowedToolSet = new Set<AssistantToolName>(["search_products", "get_product_details", "check_stock"]);
+export const ALL_READ_ONLY_ASSISTANT_TOOLS: readonly AssistantToolName[] = [
+  "get_store_summary",
+  "search_products",
+  "get_product_details",
+  "check_stock",
+  "search_customers",
+  "get_customer_balance",
+  "get_sales_summary",
+  "get_cash_register_status",
+];
+
+const allowedToolSet = new Set<AssistantToolName>(ALL_READ_ONLY_ASSISTANT_TOOLS);
 
 const toolDeclarations: Record<AssistantToolName, {description: string; parameters: Record<string, unknown>}> = {
+  get_store_summary: {
+    description: "Obtém o resumo comercial da loja (nome, moeda, nº de produtos, clientes, total de vendas, total de compras e sessões de caixa abertas).",
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
   search_products: {
     description: "Pesquisa produtos activos pelo nome ou termo de pesquisa.",
     parameters: {
       type: "object",
       properties: {
         query: {type: "string", description: "Termo de pesquisa"},
-        limit: {type: "integer", minimum: 1, maximum: 20},
+        limit: {type: "integer", minimum: 1, maximum: 10},
       },
       required: ["query"],
       additionalProperties: false,
@@ -22,20 +42,57 @@ const toolDeclarations: Record<AssistantToolName, {description: string; paramete
     parameters: {
       type: "object",
       properties: {
-        id: {type: "string", description: "UUID do produto"},
+        productId: {type: "string", description: "UUID do produto"},
       },
-      required: ["id"],
+      required: ["productId"],
       additionalProperties: false,
     },
   },
   check_stock: {
-    description: "Consulta o saldo de stock de um produto pelo UUID.",
+    description: "Consulta o saldo de stock de um produto específico (por productId UUID) ou de todo o inventário da loja (sem productId).",
     parameters: {
       type: "object",
       properties: {
-        productId: {type: "string", description: "UUID do produto"},
+        productId: {type: "string", description: "UUID opcional do produto"},
       },
-      required: ["productId"],
+      additionalProperties: false,
+    },
+  },
+  search_customers: {
+    description: "Pesquisa clientes activos pelo nome.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {type: "string", description: "Nome ou parte do nome do cliente"},
+        limit: {type: "integer", minimum: 1, maximum: 10},
+      },
+      additionalProperties: false,
+    },
+  },
+  get_customer_balance: {
+    description: "Consulta o saldo em aberto (a receber em AOA) de um cliente específico pelo UUID.",
+    parameters: {
+      type: "object",
+      properties: {
+        customerId: {type: "string", description: "UUID do cliente"},
+      },
+      required: ["customerId"],
+      additionalProperties: false,
+    },
+  },
+  get_sales_summary: {
+    description: "Obtém o total de vendas confirmadas e as 10 vendas mais recentes da loja.",
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  get_cash_register_status: {
+    description: "Lista as sessões de caixa actualmente abertas e o saldo inicial.",
+    parameters: {
+      type: "object",
+      properties: {},
       additionalProperties: false,
     },
   },
@@ -85,17 +142,26 @@ export function assertSafeLlmEndpointUrl(rawUrl: string): URL {
 function buildSystemInstruction(request: AssistantProviderRequest): string {
   const tools = request.allowedTools.filter((name) => allowedToolSet.has(name)).join(", ");
   return [
-    "És a Edvânia, assistente comercial para lojas em Angola.",
-    "Responde de forma clara e curta em português.",
-    "Só podes consultar dados usando as ferramentas permitidas quando necessário:",
+    "És a Edvânia, assistente comercial oficial para lojas e comerciantes em Angola (moeda AOA, fuso horário Africa/Luanda).",
+    "Responde sempre de forma clara, objectiva e cordial em português (pt-AO).",
+    "Quando o utilizador perguntar por preços, produtos, stock, vendas, clientes ou estado de caixa, usa as ferramentas read-only disponíveis:",
     tools || "nenhuma",
-    "Nunca executes vendas, compras, alterações de stock ou operações de caixa sem confirmação explícita no painel.",
+    "Nunca inventes valores nem assumas preços ou saldos sem consultar as ferramentas.",
+    "Nunca executes vendas, compras, alterações de stock ou operações de caixa autonomamente — orienta o operador a usar a confirmação explícita no painel.",
   ].join(" ");
 }
 
 function buildUserContent(request: AssistantProviderRequest): string {
-  if (!request.toolResults.length) return request.userMessage;
-  return `${request.userMessage}\n\nResultados das consultas:\n${JSON.stringify(request.toolResults)}`;
+  const historyLines = (request.history ?? [])
+    .slice(-8)
+    .map((entry) => `${entry.role === "user" ? "Utilizador" : "Edvânia"}: ${entry.text.slice(0, 600)}`)
+    .join("\n");
+  const baseMessage = historyLines
+    ? `Contexto recente da conversa:\n${historyLines}\n\nMensagem actual:\n${request.userMessage}`
+    : request.userMessage;
+
+  if (!request.toolResults.length) return baseMessage;
+  return `${baseMessage}\n\nResultados das consultas autorizadas:\n${JSON.stringify(request.toolResults)}`;
 }
 
 type FetchLike = typeof fetch;
@@ -106,8 +172,8 @@ export function createGeminiAssistantProvider(options: Readonly<{
   fetchImpl?: FetchLike;
 }>): AssistantProvider {
   const apiKey = options.apiKey.trim();
-  const model = (options.model ?? "gemini-2.5-flash").trim();
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const model = (options.model ?? DEFAULT_GEMINI_MODEL).trim();
+  const fetchImpl = options.fetchImpl;
   if (!apiKey) throw new RangeError("Gemini API key is required.");
   if (!/^[a-zA-Z0-9._-]{1,80}$/.test(model)) throw new RangeError("Invalid Gemini model name.");
 
@@ -129,11 +195,58 @@ export function createGeminiAssistantProvider(options: Readonly<{
     })).optional(),
   });
 
+  // Use official @google/genai SDK in runtime; retain injected fetchImpl strictly for unit-test mocks.
+  const sdkClient = fetchImpl
+    ? null
+    : new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      });
+
   return {
     async generate(request, signal) {
       const enabledTools = request.allowToolCalls
         ? request.allowedTools.filter((name) => allowedToolSet.has(name))
         : [];
+
+      if (sdkClient) {
+        const declarations: FunctionDeclaration[] = enabledTools.map((name) => ({
+          name,
+          description: toolDeclarations[name].description,
+          parametersJsonSchema: toolDeclarations[name].parameters,
+        }));
+
+        const isGemini4 = model.startsWith("gemini-4-");
+        const response = await sdkClient.models.generateContent({
+          model,
+          contents: buildUserContent(request),
+          config: {
+            systemInstruction: buildSystemInstruction(request),
+            ...(isGemini4 ? {} : {maxOutputTokens: request.maxOutputTokens, temperature: 0.2}),
+            abortSignal: signal,
+            ...(declarations.length ? {tools: [{functionDeclarations: declarations}]} : {}),
+          },
+        });
+
+        const calls = (response.functionCalls ?? []).slice(0, 3).map((call) => ({
+          name: call.name ?? "",
+          arguments: (call.args && typeof call.args === "object" && !Array.isArray(call.args))
+            ? (call.args as Record<string, unknown>)
+            : {},
+        })).filter((call) => call.name.length > 0);
+
+        if (calls.length > 0) {
+          return {toolCalls: calls};
+        }
+
+        const text = (response.text ?? "").trim();
+        return {text: text.slice(0, 4_000)};
+      }
+
       const payload = {
         systemInstruction: {parts: [{text: buildSystemInstruction(request)}]},
         contents: [{role: "user", parts: [{text: buildUserContent(request)}]}],
@@ -151,14 +264,14 @@ export function createGeminiAssistantProvider(options: Readonly<{
           : {}),
       };
 
-      const res = await fetchImpl(endpoint.toString(), {
+      const res = await fetchImpl!(endpoint.toString(), {
         method: "POST",
         headers: {"Content-Type": "application/json", "x-goog-api-key": apiKey},
         body: JSON.stringify(payload),
         redirect: "error",
         signal,
       });
-      if (!res.ok) throw new Error("provider_http_error");
+      if (!res.ok) throw new Error(`provider_http_error_${res.status}`);
 
       const parsed = responseValidator.parse(await res.json());
       const parts = parsed.candidates?.[0]?.content?.parts ?? [];
@@ -241,7 +354,7 @@ export function createOpenAiCompatibleProvider(options: Readonly<{
         redirect: "error",
         signal,
       });
-      if (!res.ok) throw new Error("provider_http_error");
+      if (!res.ok) throw new Error(`provider_http_error_${res.status}`);
 
       const parsed = responseValidator.parse(await res.json());
       const msg = parsed.choices?.[0]?.message;
@@ -280,17 +393,48 @@ export function createDeterministicSandboxProvider(): AssistantProvider {
           );
           return {text: `Artigos encontrados:\n${lines.join("\n")}`};
         }
-        return {text: "Consulta concluída no catálogo da loja."};
+
+        const summary = request.toolResults.find((item) => item.name === "get_store_summary");
+        if (summary && summary.result.ok && summary.result.data && typeof summary.result.data === "object") {
+          const s = summary.result.data as {
+            store?: {name?: string};
+            productCount?: number;
+            customerCount?: number;
+            salesTotal?: number;
+            openCashSessions?: number;
+          };
+          return {
+            text: `Resumo da loja ${s.store?.name ?? ""}: ${s.productCount ?? 0} produto(s), ${s.customerCount ?? 0} cliente(s), vendas confirmadas de ${Number(s.salesTotal ?? 0).toFixed(2)} AOA e ${s.openCashSessions ?? 0} caixa(s) aberta(s).`,
+          };
+        }
+
+        const cash = request.toolResults.find((item) => item.name === "get_cash_register_status");
+        if (cash && cash.result.ok && Array.isArray(cash.result.data)) {
+          return {
+            text: cash.result.data.length
+              ? `Tens ${cash.result.data.length} sessão(ões) de caixa aberta(s) neste momento.`
+              : "Não há sessões de caixa abertas nesta loja neste momento.",
+          };
+        }
+
+        return {text: "Consulta concluída no catálogo e registos da loja."};
       }
 
       const lower = request.userMessage.trim().toLowerCase();
-      if (/\b(vender|venda|comprar|compra|fechar caixa|abrir caixa|despesa)\b/.test(lower)) {
+      if (/\b(vender|venda|comprar|compra|fechar caixa|abrir caixa|despesa)\b/.test(lower)
+        && !/\b(resumo|total|quantas|como est[aá]|estado)\b/.test(lower)) {
         return {
           text: "Operações que alteram vendas, compras ou caixa exigem resumo e confirmação explícita no painel antes de serem executadas.",
         };
       }
 
       if (request.allowToolCalls) {
+        if (/\b(resumo|loja|indicador|hoje|relat[oó]rio)\b/.test(lower) && request.allowedTools.includes("get_store_summary")) {
+          return {toolCalls: [{name: "get_store_summary", arguments: {}}]};
+        }
+        if (/\b(caixa|turno|sess[aã]o)\b/.test(lower) && request.allowedTools.includes("get_cash_register_status")) {
+          return {toolCalls: [{name: "get_cash_register_status", arguments: {}}]};
+        }
         const cleaned = lower
           .replace(/\b(qual|quanto|custa|preço|preco|stock|tem|há|ha|produto|artigo|de|do|da|o|a)\b|\?/g, " ")
           .replace(/\s+/g, " ")
@@ -301,12 +445,12 @@ export function createDeterministicSandboxProvider(): AssistantProvider {
         };
       }
 
-      return {text: "Posso consultar preços e produtos da loja. Indica o nome do artigo que procuras."};
+      return {text: "Posso consultar preços, stock, clientes, vendas e caixa da loja. O que gostarias de verificar?"};
     },
   };
 }
 
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+export const DEFAULT_GEMINI_MODEL = "gemini-4-hydrogen";
 export const DEFAULT_OPENAI_FALLBACK_URL = "https://api.openai.com/v1";
 export const DEFAULT_OPENAI_FALLBACK_MODEL = "gpt-4o-mini";
 
@@ -318,7 +462,10 @@ export function resolveAssistantProvidersFromEnv(
   fallback?: AssistantProvider;
   mode: "configured" | "sandbox";
   primaryModel: string;
+  primaryProvider: "gemini" | "openai_compatible" | "sandbox";
   fallbackModel?: string;
+  geminiConfigured: boolean;
+  fallbackConfigured: boolean;
 }> {
   const geminiKey = env.GEMINI_API_KEY?.trim();
   const primaryModel = env.LLM_PRIMARY_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
@@ -356,6 +503,9 @@ export function resolveAssistantProvidersFromEnv(
       primary: createDeterministicSandboxProvider(),
       mode: "sandbox",
       primaryModel: "sandbox",
+      primaryProvider: "sandbox",
+      geminiConfigured: false,
+      fallbackConfigured: false,
     };
   }
 
@@ -364,6 +514,9 @@ export function resolveAssistantProvidersFromEnv(
     fallback,
     mode: "configured",
     primaryModel: geminiKey ? primaryModel : fallbackModel,
+    primaryProvider: geminiKey ? "gemini" : "openai_compatible",
+    geminiConfigured: Boolean(geminiKey),
+    fallbackConfigured: Boolean(fallbackKey),
     ...(fallback ? {fallbackModel} : {}),
   };
 }

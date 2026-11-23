@@ -117,6 +117,7 @@ export async function dispatchPendingOutbox(formData: FormData) {
   const {user} = await authorizeWhatsAppOperator(parsed.data.storeId);
   const runtime = getSandboxWhatsAppRuntime();
   const {isSupabaseConfigured} = await import("@/lib/env");
+  const {getBaileysWhatsAppRuntime} = await import("@/lib/whatsapp/baileys-runtime.server");
   const {createServerWhatsAppOutboxStore} = await import("@/lib/whatsapp/outbox-store.server");
   const {dispatchOutboxBatch} = await import("@/lib/whatsapp/outbox-worker");
 
@@ -130,7 +131,7 @@ export async function dispatchPendingOutbox(formData: FormData) {
       parsed.data.storeId,
       `operator-${user.id.slice(0, 8)}`,
       store,
-      runtime.createOutboxSender(),
+      getBaileysWhatsAppRuntime().createUnifiedOutboxSender(),
       {limit: 20, leaseSeconds: 60},
     );
     redirectTarget = `/whatsapp?store=${parsed.data.storeId}&notice=dispatched&claimed=${batch.claimed}`;

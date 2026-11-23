@@ -6,11 +6,11 @@ export function resolveConfiguredAssistantProviders(): Readonly<{
   primary: AssistantProvider;
   fallback?: AssistantProvider;
   mode: "configured" | "sandbox";
+  primaryModel: string;
+  primaryProvider: "gemini" | "openai_compatible" | "sandbox";
+  fallbackModel?: string;
+  geminiConfigured: boolean;
+  fallbackConfigured: boolean;
 }> {
-  const resolved = resolveAssistantProvidersFromEnv(process.env);
-  return {
-    primary: resolved.primary,
-    fallback: resolved.fallback,
-    mode: resolved.mode,
-  };
+  return resolveAssistantProvidersFromEnv(process.env);
 }

@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   BarChart3,
+  Bot,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -21,6 +22,7 @@ import { PageEntrance } from "./motion-primitives";
 
 export type WorkspaceSectionKey =
   | "dashboard"
+  | "assistant"
   | "products"
   | "sales"
   | "purchases"
@@ -83,8 +85,9 @@ export function WorkspaceShell({
     {
       title: "Relacionamento e Canal",
       items: [
+        { key: "assistant", label: "Assistente IA e WhatsApp", href: `/assistant${qs}`, icon: Bot },
         { key: "customers", label: "Clientes e fornecedores", href: `/customers${qs}`, icon: Users, managerOnly: true },
-        { key: "whatsapp", label: "WhatsApp e assistente", href: `/whatsapp${qs}`, icon: MessageSquare, managerOnly: true },
+        { key: "whatsapp", label: "Caixa e fila outbox", href: `/whatsapp${qs}`, icon: MessageSquare, managerOnly: true },
       ],
     },
     {
