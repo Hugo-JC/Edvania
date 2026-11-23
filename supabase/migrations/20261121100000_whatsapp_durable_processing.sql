@@ -11,18 +11,21 @@ begin
 end;
 $$;
 
-alter table public.whatsapp_conversations add column connection_id uuid;
-alter table public.whatsapp_messages add column connection_id uuid;
+alter table public.whatsapp_conversations add column if not exists connection_id uuid;
+alter table public.whatsapp_messages add column if not exists connection_id uuid;
 
 update public.whatsapp_conversations c
 set connection_id = w.id
 from public.whatsapp_connections w
-where c.store_id = w.store_id;
+where c.store_id = w.store_id
+  and c.connection_id is null;
 
 update public.whatsapp_messages m
 set connection_id = c.connection_id
 from public.whatsapp_conversations c
-where m.store_id = c.store_id and m.conversation_id = c.id;
+where m.store_id = c.store_id
+  and m.conversation_id = c.id
+  and m.connection_id is null;
 
 do $$
 begin
@@ -45,36 +48,61 @@ $$;
 alter table public.whatsapp_conversations alter column connection_id set not null;
 alter table public.whatsapp_messages alter column connection_id set not null;
 
-alter table public.whatsapp_conversations
-  add constraint whatsapp_conversations_store_connection_fkey
-  foreign key (store_id, connection_id)
-  references public.whatsapp_connections(store_id, id)
-  on delete restrict;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'whatsapp_conversations_store_connection_fkey'
+  ) then
+    alter table public.whatsapp_conversations
+      add constraint whatsapp_conversations_store_connection_fkey
+      foreign key (store_id, connection_id)
+      references public.whatsapp_connections(store_id, id)
+      on delete restrict;
+  end if;
 
-alter table public.whatsapp_messages
-  add constraint whatsapp_messages_store_connection_fkey
-  foreign key (store_id, connection_id)
-  references public.whatsapp_connections(store_id, id)
-  on delete restrict;
+  if not exists (
+    select 1 from pg_constraint where conname = 'whatsapp_messages_store_connection_fkey'
+  ) then
+    alter table public.whatsapp_messages
+      add constraint whatsapp_messages_store_connection_fkey
+      foreign key (store_id, connection_id)
+      references public.whatsapp_connections(store_id, id)
+      on delete restrict;
+  end if;
 
-alter table public.whatsapp_messages
-  add constraint whatsapp_messages_store_id_id_key unique (store_id, id);
+  if not exists (
+    select 1 from pg_constraint where conname = 'whatsapp_messages_store_id_id_key'
+  ) then
+    alter table public.whatsapp_messages
+      add constraint whatsapp_messages_store_id_id_key unique (store_id, id);
+  end if;
+end;
+$$;
 
 alter table public.whatsapp_connections drop constraint if exists whatsapp_connections_store_id_key;
 alter table public.baileys_auth_state drop constraint if exists baileys_auth_state_store_id_session_id_key_type_key_id_key;
-alter table public.baileys_auth_state
-  add constraint baileys_auth_state_connection_session_key_type_key_id_key
-  unique (store_id, connection_id, session_id, key_type, key_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'baileys_auth_state_connection_session_key_type_key_id_key'
+  ) then
+    alter table public.baileys_auth_state
+      add constraint baileys_auth_state_connection_session_key_type_key_id_key
+      unique (store_id, connection_id, session_id, key_type, key_id);
+  end if;
+end;
+$$;
 
 drop index if exists public.whatsapp_external_message_uq;
-create unique index whatsapp_external_message_connection_uq
+create unique index if not exists whatsapp_external_message_connection_uq
   on public.whatsapp_messages(store_id, connection_id, external_message_id)
   where external_message_id is not null;
 
-create unique index whatsapp_conversations_store_connection_contact_uq
+create unique index if not exists whatsapp_conversations_store_connection_contact_uq
   on public.whatsapp_conversations(store_id, connection_id, wa_contact);
 
-create table public.whatsapp_jobs (
+create table if not exists public.whatsapp_jobs (
   id uuid primary key default gen_random_uuid(),
   store_id uuid not null references public.stores(id) on delete cascade,
   connection_id uuid not null,
@@ -100,7 +128,7 @@ create table public.whatsapp_jobs (
   constraint whatsapp_jobs_store_connection_idempotency_key unique (store_id, connection_id, idempotency_key)
 );
 
-create table public.whatsapp_outbox (
+create table if not exists public.whatsapp_outbox (
   id uuid primary key default gen_random_uuid(),
   store_id uuid not null references public.stores(id) on delete cascade,
   connection_id uuid not null,
@@ -129,43 +157,59 @@ create table public.whatsapp_outbox (
   constraint whatsapp_outbox_store_connection_idempotency_key unique (store_id, connection_id, idempotency_key)
 );
 
-alter table public.whatsapp_jobs
-  add constraint whatsapp_jobs_store_connection_fkey
-  foreign key (store_id, connection_id)
-  references public.whatsapp_connections(store_id, id)
-  on delete cascade,
-  add constraint whatsapp_jobs_store_message_fkey
-  foreign key (store_id, message_id)
-  references public.whatsapp_messages(store_id, id)
-  on delete cascade;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'whatsapp_jobs_store_connection_fkey') then
+    alter table public.whatsapp_jobs
+      add constraint whatsapp_jobs_store_connection_fkey
+      foreign key (store_id, connection_id)
+      references public.whatsapp_connections(store_id, id)
+      on delete cascade;
+  end if;
 
-alter table public.whatsapp_outbox
-  add constraint whatsapp_outbox_store_connection_fkey
-  foreign key (store_id, connection_id)
-  references public.whatsapp_connections(store_id, id)
-  on delete cascade,
-  add constraint whatsapp_outbox_store_conversation_fkey
-  foreign key (store_id, conversation_id)
-  references public.whatsapp_conversations(store_id, id)
-  on delete cascade;
+  if not exists (select 1 from pg_constraint where conname = 'whatsapp_jobs_store_message_fkey') then
+    alter table public.whatsapp_jobs
+      add constraint whatsapp_jobs_store_message_fkey
+      foreign key (store_id, message_id)
+      references public.whatsapp_messages(store_id, id)
+      on delete cascade;
+  end if;
 
-create index whatsapp_jobs_claim_idx
+  if not exists (select 1 from pg_constraint where conname = 'whatsapp_outbox_store_connection_fkey') then
+    alter table public.whatsapp_outbox
+      add constraint whatsapp_outbox_store_connection_fkey
+      foreign key (store_id, connection_id)
+      references public.whatsapp_connections(store_id, id)
+      on delete cascade;
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'whatsapp_outbox_store_conversation_fkey') then
+    alter table public.whatsapp_outbox
+      add constraint whatsapp_outbox_store_conversation_fkey
+      foreign key (store_id, conversation_id)
+      references public.whatsapp_conversations(store_id, id)
+      on delete cascade;
+  end if;
+end;
+$$;
+
+create index if not exists whatsapp_jobs_claim_idx
   on public.whatsapp_jobs(status, available_at, created_at)
   where status in ('pending', 'retry_wait');
 
-create index whatsapp_jobs_expired_lease_idx
+create index if not exists whatsapp_jobs_expired_lease_idx
   on public.whatsapp_jobs(lease_expires_at)
   where status = 'processing';
 
-create index whatsapp_outbox_claim_idx
+create index if not exists whatsapp_outbox_claim_idx
   on public.whatsapp_outbox(status, available_at, created_at)
   where status = 'queued';
 
-create index whatsapp_outbox_expired_lease_idx
+create index if not exists whatsapp_outbox_expired_lease_idx
   on public.whatsapp_outbox(lease_expires_at)
   where status = 'sending';
 
-create function public.enqueue_whatsapp_inbound(
+create or replace function public.enqueue_whatsapp_inbound(
   p_store_id uuid,
   p_connection_id uuid,
   p_sender_id text,
@@ -272,7 +316,7 @@ alter table public.whatsapp_outbox enable row level security;
 
 grant select, insert, update, delete on public.whatsapp_jobs, public.whatsapp_outbox to service_role;
 
-create function public.claim_whatsapp_jobs(
+create or replace function public.claim_whatsapp_jobs(
   p_store_id uuid,
   p_lease_owner text,
   p_limit integer default 20,
@@ -318,7 +362,7 @@ begin
 end;
 $$;
 
-create function public.claim_whatsapp_outbox(
+create or replace function public.claim_whatsapp_outbox(
   p_store_id uuid,
   p_lease_owner text,
   p_limit integer default 20,
@@ -362,7 +406,7 @@ begin
 end;
 $$;
 
-create function public.finalize_whatsapp_job(
+create or replace function public.finalize_whatsapp_job(
   p_store_id uuid,
   p_job_id uuid,
   p_lease_token uuid,
@@ -412,7 +456,7 @@ begin
 end;
 $$;
 
-create function public.finalize_whatsapp_outbox(
+create or replace function public.finalize_whatsapp_outbox(
   p_store_id uuid,
   p_outbox_id uuid,
   p_lease_token uuid,
@@ -467,7 +511,7 @@ begin
 end;
 $$;
 
-create function public.reap_expired_whatsapp_jobs(
+create or replace function public.reap_expired_whatsapp_jobs(
   p_store_id uuid
 )
 returns integer
@@ -495,7 +539,7 @@ begin
 end;
 $$;
 
-create function public.mark_expired_whatsapp_outbox_unknown(
+create or replace function public.mark_expired_whatsapp_outbox_unknown(
   p_store_id uuid
 )
 returns integer

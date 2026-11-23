@@ -1,4 +1,4 @@
-create function public.write_operation_audit_log(
+create or replace function public.write_operation_audit_log(
   p_store_id uuid,
   p_action text,
   p_entity_type text,
@@ -92,7 +92,7 @@ begin
 end;
 $$;
 
-create function public.create_sale_with_audit(
+create or replace function public.create_sale_with_audit(
   p_store_id uuid,
   p_items jsonb,
   p_payment_method public.payment_method,
@@ -122,7 +122,7 @@ begin
 end;
 $$;
 
-create function public.record_cash_movement_with_audit(
+create or replace function public.record_cash_movement_with_audit(
   p_store_id uuid,
   p_session_id uuid,
   p_movement_type text,
@@ -152,7 +152,7 @@ begin
 end;
 $$;
 
-create function public.create_purchase_with_audit(
+create or replace function public.create_purchase_with_audit(
   p_store_id uuid,
   p_items jsonb,
   p_supplier_id uuid default null,
@@ -180,7 +180,7 @@ begin
 end;
 $$;
 
-create function public.open_cash_session_with_audit(
+create or replace function public.open_cash_session_with_audit(
   p_store_id uuid,
   p_register_id uuid,
   p_opening_amount numeric,
@@ -204,7 +204,7 @@ begin
 end;
 $$;
 
-create function public.close_cash_session_with_audit(
+create or replace function public.close_cash_session_with_audit(
   p_store_id uuid,
   p_session_id uuid,
   p_counted_amount numeric,
@@ -228,7 +228,7 @@ begin
 end;
 $$;
 
-create function public.record_cash_expense_with_audit(
+create or replace function public.record_cash_expense_with_audit(
   p_store_id uuid,
   p_session_id uuid,
   p_description text,
@@ -257,7 +257,7 @@ begin
 end;
 $$;
 
-create function public.create_product_with_audit(
+create or replace function public.create_product_with_audit(
   p_store_id uuid,
   p_name text,
   p_sale_price numeric,
@@ -286,7 +286,7 @@ begin
 end;
 $$;
 
-create function public.create_category_with_audit(
+create or replace function public.create_category_with_audit(
   p_store_id uuid,
   p_name text,
   p_description text default null,
@@ -309,7 +309,7 @@ begin
 end;
 $$;
 
-create function public.create_customer_with_audit(
+create or replace function public.create_customer_with_audit(
   p_store_id uuid,
   p_name text,
   p_phone_e164 text default null,
@@ -335,7 +335,7 @@ begin
 end;
 $$;
 
-create function public.create_supplier_with_audit(
+create or replace function public.create_supplier_with_audit(
   p_store_id uuid,
   p_name text,
   p_phone_e164 text default null,
@@ -361,7 +361,7 @@ begin
 end;
 $$;
 
-create function public.record_stock_entry_with_audit(
+create or replace function public.record_stock_entry_with_audit(
   p_store_id uuid,
   p_product_id uuid,
   p_location_id uuid,
