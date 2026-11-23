@@ -1,8 +1,856 @@
--- Edvânia: Script consolidado e idempotente das migrações pendentes (20261121080000 -> 20261123080000)
--- Podes colar e executar este ficheiro inteiro uma vez no SQL Editor do Supabase Dashboard.
+-- Edvânia: Script consolidado e idempotente de TODAS as migrações pendentes após o snapshot base 20261119165840
+-- Inclui: 20261119180415 -> 20261120120000 -> 20261121080000 -> 20261121100000 -> 20261122090000 -> 20261123080000
+-- Podes colar e executar este ficheiro inteiro uma vez no SQL Editor do Supabase Dashboard (Run).
 
 -- ============================================================================
--- PARTE 1: 20261121080000_atomic_domain_audit.sql (RPCs comerciais com auditoria)
+-- PARTE 1: Criação de loja, armazém padrão e stock inicial (20261119180415 + 20261120084529)
+-- ============================================================================
+
+create or replace function public.create_store_for_current_user(p_name text)
+returns uuid
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+  v_store_id uuid;
+  v_name text := btrim(p_name);
+begin
+  if v_user_id is null then raise exception 'not_authenticated'; end if;
+  if v_name is null or char_length(v_name) < 2 or char_length(v_name) > 120 then
+    raise exception 'invalid_store_name';
+  end if;
+  insert into public.stores (name, created_by) values (v_name, v_user_id) returning id into v_store_id;
+  insert into public.store_memberships (store_id, user_id, role, status, joined_at)
+  values (v_store_id, v_user_id, 'owner', 'active', now());
+  insert into public.inventory_locations (store_id, name, is_default)
+  values (v_store_id, 'Armazém principal', true);
+  return v_store_id;
+end;
+$$;
+
+revoke all on function public.create_store_for_current_user(text) from public, anon;
+grant execute on function public.create_store_for_current_user(text) to authenticated;
+
+create or replace function public.create_product_with_opening_stock(
+  p_store_id uuid, p_name text, p_sale_price numeric,
+  p_cost_price numeric default 0, p_sku text default null,
+  p_category_id uuid default null, p_min_stock numeric default 0,
+  p_opening_quantity numeric default 0, p_unit text default 'un'
+)
+returns uuid
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+  v_product_id uuid;
+  v_location_id uuid;
+  v_name text := btrim(p_name);
+begin
+  if v_user_id is null then raise exception 'not_authenticated'; end if;
+  if not public.has_store_role(p_store_id, array['owner'::public.store_role, 'admin'::public.store_role, 'manager'::public.store_role]) then
+    raise exception 'insufficient_store_role';
+  end if;
+  if v_name is null or char_length(v_name) < 1 or char_length(v_name) > 180 then raise exception 'invalid_product_name'; end if;
+  if p_sale_price < 0 or p_cost_price < 0 or p_min_stock < 0 or p_opening_quantity < 0 then raise exception 'invalid_product_amount'; end if;
+  if p_unit is null or char_length(btrim(p_unit)) < 1 or char_length(p_unit) > 24 then raise exception 'invalid_product_unit'; end if;
+
+  insert into public.products (store_id, name, sale_price, cost_price, sku, category_id, min_stock, unit)
+  values (p_store_id, v_name, p_sale_price, p_cost_price, nullif(btrim(coalesce(p_sku, '')), ''), p_category_id, p_min_stock, btrim(p_unit))
+  returning id into v_product_id;
+
+  if p_opening_quantity > 0 then
+    select id into v_location_id from public.inventory_locations
+    where store_id = p_store_id and is_default = true and status = 'active' limit 1;
+    if v_location_id is null then raise exception 'default_inventory_location_missing'; end if;
+    insert into public.inventory_movements (store_id, product_id, location_id, movement_type, quantity_delta, unit_cost, notes, created_by)
+    values (p_store_id, v_product_id, v_location_id, 'opening', p_opening_quantity, p_cost_price, 'Stock inicial do produto', v_user_id);
+  end if;
+  return v_product_id;
+end;
+$$;
+
+revoke all on function public.create_product_with_opening_stock(uuid,text,numeric,numeric,text,uuid,numeric,numeric,text) from public, anon;
+grant execute on function public.create_product_with_opening_stock(uuid,text,numeric,numeric,text,uuid,numeric,numeric,text) to authenticated;
+
+-- ============================================================================
+-- PARTE 2: Vendas e pagamentos atómicos + isolamento em schema privado (20261120092205 -> 20261120093457)
+-- ============================================================================
+
+alter table public.sales
+  add column if not exists idempotency_key uuid,
+  add column if not exists request_fingerprint text;
+
+create unique index if not exists sales_store_idempotency_key_uidx
+  on public.sales (store_id, idempotency_key)
+  where idempotency_key is not null;
+
+drop policy if exists payments_insert_store_member on public.payments;
+drop policy if exists payments_insert_commercial_manager on public.payments;
+drop policy if exists inventory_movements_insert_sale_out on public.inventory_movements;
+drop policy if exists sales_insert_member on public.sales;
+drop policy if exists sales_update_manager on public.sales;
+drop policy if exists sales_delete_admin on public.sales;
+drop policy if exists sale_items_insert_member on public.sale_items;
+drop policy if exists sale_items_update_manager on public.sale_items;
+drop policy if exists sale_items_delete_manager on public.sale_items;
+
+revoke insert, update, delete on table public.payments from anon, authenticated;
+revoke insert, update, delete on table public.sales from anon, authenticated;
+revoke insert, update, delete on table public.sale_items from anon, authenticated;
+
+create schema if not exists private;
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated;
+
+drop function if exists public.create_sale_with_payment(uuid, jsonb, public.payment_method, numeric, uuid, text);
+
+create or replace function private.create_sale_with_payment_internal(
+  p_store_id uuid,
+  p_items jsonb,
+  p_payment_method public.payment_method,
+  p_paid_amount numeric default 0,
+  p_customer_id uuid default null,
+  p_notes text default null,
+  p_idempotency_key uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+  v_sale_id uuid;
+  v_existing_fingerprint text;
+  v_fingerprint text;
+  v_normalized_items jsonb;
+  v_product_id uuid;
+  v_product_name text;
+  v_sku text;
+  v_unit_price numeric(14,2);
+  v_quantity numeric(14,3);
+  v_line_total numeric(14,2);
+  v_subtotal numeric(14,2) := 0;
+  v_total numeric(14,2);
+  v_stock numeric(14,3);
+  v_location_id uuid;
+  v_track_stock boolean;
+  v_location_loaded boolean := false;
+  v_item jsonb;
+begin
+  if v_user_id is null then raise exception 'not_authenticated'; end if;
+  if not public.has_store_role(p_store_id, array['owner'::public.store_role, 'admin'::public.store_role, 'manager'::public.store_role]) then
+    raise exception 'insufficient_store_role';
+  end if;
+  if p_idempotency_key is null then raise exception 'idempotency_key_required'; end if;
+  if p_items is null or jsonb_typeof(p_items) is distinct from 'array' then raise exception 'invalid_sale_items'; end if;
+  if jsonb_array_length(p_items) = 0 or jsonb_array_length(p_items) > 100 then raise exception 'invalid_sale_items'; end if;
+  if p_paid_amount is null or p_paid_amount < 0 or p_paid_amount <> round(p_paid_amount, 2) then raise exception 'invalid_paid_amount'; end if;
+  if p_paid_amount > 0 and p_payment_method is null then raise exception 'payment_method_required'; end if;
+  if p_customer_id is not null and not exists (
+    select 1 from public.customers c where c.id = p_customer_id and c.store_id = p_store_id
+  ) then raise exception 'customer_not_found'; end if;
+
+  for v_item in select value from jsonb_array_elements(p_items)
+  loop
+    if jsonb_typeof(v_item) is distinct from 'object'
+       or coalesce(v_item->>'product_id', '') = ''
+       or coalesce(v_item->>'quantity', '') = '' then
+      raise exception 'invalid_sale_item';
+    end if;
+    begin
+      v_product_id := (v_item->>'product_id')::uuid;
+      v_quantity := (v_item->>'quantity')::numeric;
+    exception when others then
+      raise exception 'invalid_sale_item';
+    end;
+    if v_quantity <= 0 or v_quantity <> round(v_quantity, 3) then raise exception 'invalid_sale_quantity'; end if;
+  end loop;
+
+  if (select count(*) <> count(distinct (value->>'product_id')::uuid) from jsonb_array_elements(p_items)) then
+    raise exception 'duplicate_sale_product';
+  end if;
+
+  select jsonb_agg(
+    jsonb_build_object('product_id', (item->>'product_id')::uuid, 'quantity', (item->>'quantity')::numeric)
+    order by (item->>'product_id')::uuid
+  )
+  into v_normalized_items
+  from jsonb_array_elements(p_items) as items(item);
+
+  v_fingerprint := pg_catalog.md5(jsonb_build_object(
+    'items', v_normalized_items,
+    'payment_method', p_payment_method::text,
+    'paid_amount', p_paid_amount,
+    'customer_id', p_customer_id,
+    'notes', nullif(btrim(coalesce(p_notes, '')), '')
+  )::text);
+
+  insert into public.sales (store_id, customer_id, status, notes, created_by, idempotency_key, request_fingerprint)
+  values (p_store_id, p_customer_id, 'draft'::public.sale_status, nullif(btrim(coalesce(p_notes, '')), ''), v_user_id, p_idempotency_key, v_fingerprint)
+  on conflict (store_id, idempotency_key) where idempotency_key is not null
+  do nothing
+  returning id into v_sale_id;
+
+  if v_sale_id is null then
+    select s.id, s.request_fingerprint into v_sale_id, v_existing_fingerprint
+    from public.sales s
+    where s.store_id = p_store_id and s.idempotency_key = p_idempotency_key
+    for update;
+    if v_sale_id is null then raise exception 'idempotency_conflict_retry'; end if;
+    if v_existing_fingerprint is distinct from v_fingerprint then
+      raise exception 'idempotency_key_reused_with_different_payload';
+    end if;
+    return v_sale_id;
+  end if;
+
+  for v_item in
+    select value from jsonb_array_elements(v_normalized_items)
+    order by (value->>'product_id')::uuid
+  loop
+    v_product_id := (v_item->>'product_id')::uuid;
+    v_quantity := (v_item->>'quantity')::numeric;
+
+    select p.name, p.sku, p.sale_price, p.track_stock
+    into v_product_name, v_sku, v_unit_price, v_track_stock
+    from public.products p
+    where p.id = v_product_id and p.store_id = p_store_id and p.status = 'active'::public.record_status
+    for update;
+    if not found then raise exception 'product_not_found'; end if;
+
+    if v_track_stock then
+      if not v_location_loaded then
+        select il.id into v_location_id
+        from public.inventory_locations il
+        where il.store_id = p_store_id and il.is_default = true and il.status = 'active'::public.record_status
+        limit 1;
+        if v_location_id is null then raise exception 'default_inventory_location_missing'; end if;
+        v_location_loaded := true;
+      end if;
+
+      select coalesce(sum(im.quantity_delta), 0) into v_stock
+      from public.inventory_movements im
+      where im.store_id = p_store_id and im.product_id = v_product_id and im.location_id = v_location_id;
+      if v_stock < v_quantity then raise exception 'insufficient_stock:%', v_product_name; end if;
+    end if;
+
+    v_line_total := round(v_quantity * v_unit_price, 2);
+    v_subtotal := v_subtotal + v_line_total;
+
+    insert into public.sale_items (
+      store_id, sale_id, product_id, product_name, sku, quantity, unit_price, discount_amount, tax_rate, line_total
+    ) values (
+      p_store_id, v_sale_id, v_product_id, v_product_name, v_sku, v_quantity, v_unit_price, 0, 0, v_line_total
+    );
+
+    if v_track_stock then
+      insert into public.inventory_movements (
+        store_id, product_id, location_id, movement_type, quantity_delta, reference_type, reference_id, notes, created_by
+      ) values (
+        p_store_id, v_product_id, v_location_id, 'sale'::public.stock_movement_type, -v_quantity, 'sale', v_sale_id, 'Saída por venda', v_user_id
+      );
+    end if;
+  end loop;
+
+  v_total := round(v_subtotal, 2);
+  if p_paid_amount > v_total then raise exception 'paid_amount_exceeds_sale_total'; end if;
+
+  update public.sales
+  set subtotal = v_total, total = v_total, status = 'confirmed'::public.sale_status, sold_at = now(), updated_at = now()
+  where id = v_sale_id and store_id = p_store_id;
+
+  if p_paid_amount > 0 then
+    insert into public.payments (store_id, sale_id, method, status, amount, currency_code, paid_at)
+    values (p_store_id, v_sale_id, p_payment_method, 'confirmed'::public.payment_status, p_paid_amount, 'AOA', now());
+  end if;
+
+  return v_sale_id;
+end;
+$$;
+
+revoke all on function private.create_sale_with_payment_internal(uuid, jsonb, public.payment_method, numeric, uuid, text, uuid) from public, anon;
+grant execute on function private.create_sale_with_payment_internal(uuid, jsonb, public.payment_method, numeric, uuid, text, uuid) to authenticated;
+
+create or replace function public.create_sale_with_payment(
+  p_store_id uuid,
+  p_items jsonb,
+  p_payment_method public.payment_method,
+  p_paid_amount numeric default 0,
+  p_customer_id uuid default null,
+  p_notes text default null,
+  p_idempotency_key uuid default null
+)
+returns uuid
+language sql
+security invoker
+set search_path = ''
+as $$
+  select private.create_sale_with_payment_internal(
+    p_store_id, p_items, p_payment_method, p_paid_amount,
+    p_customer_id, p_notes, p_idempotency_key
+  );
+$$;
+
+revoke all on function public.create_sale_with_payment(uuid, jsonb, public.payment_method, numeric, uuid, text, uuid) from public, anon;
+grant execute on function public.create_sale_with_payment(uuid, jsonb, public.payment_method, numeric, uuid, text, uuid) to authenticated;
+
+-- ============================================================================
+-- PARTE 3: Compras e recepção de stock atómica (20261120093714 + 20261120093753)
+-- ============================================================================
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_type t
+    join pg_namespace n on n.oid = t.typnamespace
+    where n.nspname = 'public' and t.typname = 'purchase_status'
+  ) then
+    create type public.purchase_status as enum ('draft', 'received', 'cancelled');
+  end if;
+end;
+$$;
+
+create table if not exists public.purchases (
+  id uuid primary key default gen_random_uuid(),
+  store_id uuid not null references public.stores(id) on delete cascade,
+  purchase_number bigint generated by default as identity not null,
+  supplier_id uuid,
+  supplier_reference text,
+  status public.purchase_status not null default 'received',
+  subtotal numeric(14,2) not null default 0,
+  total numeric(14,2) not null default 0,
+  notes text,
+  received_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null,
+  idempotency_key uuid,
+  request_fingerprint text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint purchases_store_id_id_key unique (store_id, id),
+  constraint purchases_store_id_number_key unique (store_id, purchase_number),
+  constraint purchases_store_supplier_fkey foreign key (store_id, supplier_id)
+    references public.suppliers(store_id, id) on delete restrict,
+  constraint purchases_subtotal_check check (subtotal >= 0),
+  constraint purchases_total_check check (total >= 0),
+  constraint purchases_supplier_reference_check check (supplier_reference is null or char_length(supplier_reference) <= 120)
+);
+
+create table if not exists public.purchase_items (
+  id uuid primary key default gen_random_uuid(),
+  store_id uuid not null,
+  purchase_id uuid not null,
+  product_id uuid not null,
+  product_name text not null,
+  sku text,
+  quantity numeric(14,3) not null,
+  unit_cost numeric(14,2) not null,
+  line_total numeric(14,2) not null,
+  created_at timestamptz not null default now(),
+  constraint purchase_items_quantity_check check (quantity > 0),
+  constraint purchase_items_unit_cost_check check (unit_cost >= 0),
+  constraint purchase_items_line_total_check check (line_total >= 0),
+  constraint purchase_items_store_purchase_fkey foreign key (store_id, purchase_id)
+    references public.purchases(store_id, id) on delete restrict,
+  constraint purchase_items_store_product_fkey foreign key (store_id, product_id)
+    references public.products(store_id, id) on delete restrict
+);
+
+create unique index if not exists purchases_store_idempotency_key_uidx
+  on public.purchases(store_id, idempotency_key)
+  where idempotency_key is not null;
+create index if not exists purchases_store_created_at_idx on public.purchases(store_id, created_at desc);
+create index if not exists purchases_store_supplier_idx on public.purchases(store_id, supplier_id) where supplier_id is not null;
+create index if not exists purchase_items_store_purchase_idx on public.purchase_items(store_id, purchase_id);
+create index if not exists purchase_items_store_product_idx on public.purchase_items(store_id, product_id);
+
+alter table public.purchases enable row level security;
+alter table public.purchase_items enable row level security;
+
+drop policy if exists purchases_read_member on public.purchases;
+create policy purchases_read_member on public.purchases for select to authenticated
+using (public.has_store_access(store_id));
+
+drop policy if exists purchase_items_read_member on public.purchase_items;
+create policy purchase_items_read_member on public.purchase_items for select to authenticated
+using (public.has_store_access(store_id));
+
+revoke all on table public.purchases, public.purchase_items from anon, authenticated;
+grant select on table public.purchases, public.purchase_items to authenticated;
+grant all privileges on table public.purchases, public.purchase_items to service_role;
+
+drop policy if exists inventory_movements_insert_stock_in on public.inventory_movements;
+create policy inventory_movements_insert_stock_in
+on public.inventory_movements for insert to authenticated
+with check (
+  public.has_store_role(store_id, array['owner'::public.store_role, 'admin'::public.store_role, 'manager'::public.store_role])
+  and created_by = (select auth.uid())
+  and movement_type in ('opening'::public.stock_movement_type, 'return_in'::public.stock_movement_type)
+  and quantity_delta > 0
+);
+
+create or replace function private.create_purchase_with_receipt_internal(
+  p_store_id uuid, p_items jsonb, p_supplier_id uuid default null,
+  p_supplier_reference text default null, p_notes text default null, p_idempotency_key uuid default null
+)
+returns uuid
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+  v_purchase_id uuid;
+  v_existing_fingerprint text;
+  v_fingerprint text;
+  v_normalized_items jsonb;
+  v_item jsonb;
+  v_product_id uuid;
+  v_product_name text;
+  v_sku text;
+  v_unit_cost numeric(14,2);
+  v_quantity numeric(14,3);
+  v_line_total numeric(14,2);
+  v_subtotal numeric(14,2) := 0;
+  v_location_id uuid;
+  v_track_stock boolean;
+  v_location_loaded boolean := false;
+  v_reference text := nullif(btrim(coalesce(p_supplier_reference, '')), '');
+  v_clean_notes text := nullif(btrim(coalesce(p_notes, '')), '');
+begin
+  if v_user_id is null then raise exception 'not_authenticated'; end if;
+  if not public.has_store_role(p_store_id, array['owner'::public.store_role, 'admin'::public.store_role, 'manager'::public.store_role]) then
+    raise exception 'insufficient_store_role';
+  end if;
+  if p_idempotency_key is null then raise exception 'idempotency_key_required'; end if;
+  if p_items is null or jsonb_typeof(p_items) is distinct from 'array' then raise exception 'invalid_purchase_items'; end if;
+  if jsonb_array_length(p_items) = 0 or jsonb_array_length(p_items) > 100 then raise exception 'invalid_purchase_items'; end if;
+  if v_reference is not null and char_length(v_reference) > 120 then raise exception 'invalid_supplier_reference'; end if;
+  if v_clean_notes is not null and char_length(v_clean_notes) > 500 then raise exception 'invalid_purchase_notes'; end if;
+
+  if p_supplier_id is not null and not exists (
+    select 1 from public.suppliers s where s.id=p_supplier_id and s.store_id=p_store_id and s.status='active'::public.record_status
+  ) then raise exception 'supplier_not_found'; end if;
+
+  for v_item in select value from jsonb_array_elements(p_items)
+  loop
+    if jsonb_typeof(v_item) is distinct from 'object'
+       or coalesce(v_item->>'product_id','')=''
+       or coalesce(v_item->>'quantity','')=''
+       or coalesce(v_item->>'unit_cost','')='' then raise exception 'invalid_purchase_item'; end if;
+    begin
+      v_product_id := (v_item->>'product_id')::uuid;
+      v_quantity := (v_item->>'quantity')::numeric;
+      v_unit_cost := (v_item->>'unit_cost')::numeric;
+    exception when others then raise exception 'invalid_purchase_item'; end;
+    if v_quantity <= 0 or v_quantity <> round(v_quantity,3) then raise exception 'invalid_purchase_quantity'; end if;
+    if v_unit_cost < 0 or v_unit_cost <> round(v_unit_cost,2) then raise exception 'invalid_purchase_unit_cost'; end if;
+  end loop;
+
+  if (select count(*) <> count(distinct (value->>'product_id')::uuid) from jsonb_array_elements(p_items)) then
+    raise exception 'duplicate_purchase_product';
+  end if;
+
+  select jsonb_agg(jsonb_build_object(
+    'product_id',(item->>'product_id')::uuid,
+    'quantity',(item->>'quantity')::numeric,
+    'unit_cost',(item->>'unit_cost')::numeric
+  ) order by (item->>'product_id')::uuid)
+  into v_normalized_items
+  from jsonb_array_elements(p_items) as items(item);
+
+  v_fingerprint := pg_catalog.md5(jsonb_build_object(
+    'items',v_normalized_items,'supplier_id',p_supplier_id,
+    'supplier_reference',v_reference,'notes',v_clean_notes
+  )::text);
+
+  insert into public.purchases(store_id,supplier_id,supplier_reference,status,notes,created_by,idempotency_key,request_fingerprint)
+  values(p_store_id,p_supplier_id,v_reference,'received'::public.purchase_status,v_clean_notes,v_user_id,p_idempotency_key,v_fingerprint)
+  on conflict(store_id,idempotency_key) where idempotency_key is not null do nothing
+  returning id into v_purchase_id;
+
+  if v_purchase_id is null then
+    select p.id,p.request_fingerprint into v_purchase_id,v_existing_fingerprint
+    from public.purchases p where p.store_id=p_store_id and p.idempotency_key=p_idempotency_key for update;
+    if v_purchase_id is null then raise exception 'idempotency_conflict_retry'; end if;
+    if v_existing_fingerprint is distinct from v_fingerprint then raise exception 'idempotency_key_reused_with_different_payload'; end if;
+    return v_purchase_id;
+  end if;
+
+  for v_item in select value from jsonb_array_elements(v_normalized_items) order by (value->>'product_id')::uuid
+  loop
+    v_product_id := (v_item->>'product_id')::uuid;
+    v_quantity := (v_item->>'quantity')::numeric;
+    v_unit_cost := (v_item->>'unit_cost')::numeric;
+
+    select p.name,p.sku,p.track_stock into v_product_name,v_sku,v_track_stock
+    from public.products p
+    where p.id=v_product_id and p.store_id=p_store_id and p.status='active'::public.record_status
+    for update;
+    if not found then raise exception 'product_not_found'; end if;
+
+    v_line_total := round(v_quantity*v_unit_cost,2);
+    v_subtotal := v_subtotal+v_line_total;
+
+    insert into public.purchase_items(store_id,purchase_id,product_id,product_name,sku,quantity,unit_cost,line_total)
+    values(p_store_id,v_purchase_id,v_product_id,v_product_name,v_sku,v_quantity,v_unit_cost,v_line_total);
+
+    if v_track_stock then
+      if not v_location_loaded then
+        select il.id into v_location_id from public.inventory_locations il
+        where il.store_id=p_store_id and il.is_default=true and il.status='active'::public.record_status limit 1;
+        if v_location_id is null then raise exception 'default_inventory_location_missing'; end if;
+        v_location_loaded := true;
+      end if;
+
+      insert into public.inventory_movements(store_id,product_id,location_id,movement_type,quantity_delta,unit_cost,reference_type,reference_id,notes,created_by)
+      values(p_store_id,v_product_id,v_location_id,'purchase'::public.stock_movement_type,v_quantity,v_unit_cost,'purchase',v_purchase_id,'Entrada por compra',v_user_id);
+    end if;
+  end loop;
+
+  update public.purchases set subtotal=round(v_subtotal,2),total=round(v_subtotal,2),received_at=now(),updated_at=now()
+  where id=v_purchase_id and store_id=p_store_id;
+  return v_purchase_id;
+end;
+$$;
+
+revoke all on function private.create_purchase_with_receipt_internal(uuid,jsonb,uuid,text,text,uuid) from public,anon;
+grant execute on function private.create_purchase_with_receipt_internal(uuid,jsonb,uuid,text,text,uuid) to authenticated;
+
+create or replace function public.create_purchase_with_receipt(
+  p_store_id uuid,p_items jsonb,p_supplier_id uuid default null,
+  p_supplier_reference text default null,p_notes text default null,p_idempotency_key uuid default null
+)
+returns uuid language sql security invoker set search_path=''
+as $$
+  select private.create_purchase_with_receipt_internal(p_store_id,p_items,p_supplier_id,p_supplier_reference,p_notes,p_idempotency_key);
+$$;
+
+revoke all on function public.create_purchase_with_receipt(uuid,jsonb,uuid,text,text,uuid) from public,anon;
+grant execute on function public.create_purchase_with_receipt(uuid,jsonb,uuid,text,text,uuid) to authenticated;
+
+-- ============================================================================
+-- PARTE 4: Operações atómicas de caixa e despesas (20261120104412)
+-- ============================================================================
+
+alter table public.cash_sessions
+  add column if not exists idempotency_key uuid,
+  add column if not exists request_fingerprint text,
+  add column if not exists close_idempotency_key uuid,
+  add column if not exists close_request_fingerprint text;
+
+alter table public.cash_movements
+  add column if not exists idempotency_key uuid,
+  add column if not exists request_fingerprint text;
+
+alter table public.expenses
+  add column if not exists idempotency_key uuid,
+  add column if not exists request_fingerprint text;
+
+create unique index if not exists cash_sessions_store_idempotency_key_uidx
+  on public.cash_sessions (store_id, idempotency_key)
+  where idempotency_key is not null;
+
+create unique index if not exists cash_sessions_store_close_idempotency_key_uidx
+  on public.cash_sessions (store_id, close_idempotency_key)
+  where close_idempotency_key is not null;
+
+create unique index if not exists cash_movements_store_idempotency_key_uidx
+  on public.cash_movements (store_id, idempotency_key)
+  where idempotency_key is not null;
+
+create unique index if not exists expenses_store_idempotency_key_uidx
+  on public.expenses (store_id, idempotency_key)
+  where idempotency_key is not null;
+
+drop policy if exists cash_sessions_insert_member on public.cash_sessions;
+drop policy if exists cash_sessions_update_manager on public.cash_sessions;
+drop policy if exists cash_movements_insert_member on public.cash_movements;
+drop policy if exists cash_movements_update_admin on public.cash_movements;
+drop policy if exists cash_movements_delete_admin on public.cash_movements;
+drop policy if exists expenses_insert_manager on public.expenses;
+drop policy if exists expenses_update_manager on public.expenses;
+drop policy if exists expenses_delete_admin on public.expenses;
+
+revoke insert, update, delete on public.cash_sessions from anon, authenticated;
+revoke insert, update, delete on public.cash_movements from anon, authenticated;
+revoke insert, update, delete on public.expenses from anon, authenticated;
+grant select on public.cash_sessions, public.cash_movements, public.expenses to authenticated;
+
+create or replace function private.open_cash_session_internal(
+  p_store_id uuid,
+  p_register_id uuid,
+  p_opening_amount numeric,
+  p_notes text default null,
+  p_idempotency_key uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+  v_session_id uuid;
+  v_fingerprint text;
+  v_existing_fingerprint text;
+begin
+  if v_user_id is null then raise exception 'not_authenticated'; end if;
+  if not public.has_store_role(p_store_id, array['owner'::public.store_role, 'admin'::public.store_role, 'manager'::public.store_role]) then
+    raise exception 'insufficient_store_role';
+  end if;
+  if p_idempotency_key is null then raise exception 'idempotency_key_required'; end if;
+  if p_opening_amount is null or p_opening_amount < 0 or p_opening_amount <> round(p_opening_amount, 2) then
+    raise exception 'invalid_opening_amount';
+  end if;
+  if nullif(btrim(coalesce(p_notes, '')), '') is not null and char_length(btrim(p_notes)) > 500 then
+    raise exception 'invalid_cash_notes';
+  end if;
+  if not exists (
+    select 1 from public.cash_registers r
+    where r.id = p_register_id and r.store_id = p_store_id and r.status = 'active'::public.record_status
+  ) then raise exception 'cash_register_not_found'; end if;
+
+  v_fingerprint := pg_catalog.md5(jsonb_build_object(
+    'register_id', p_register_id, 'opening_amount', p_opening_amount,
+    'notes', nullif(btrim(coalesce(p_notes, '')), '')
+  )::text);
+
+  insert into public.cash_sessions (
+    store_id, register_id, opened_by, opening_amount, notes, idempotency_key, request_fingerprint
+  ) values (
+    p_store_id, p_register_id, v_user_id, p_opening_amount,
+    nullif(btrim(coalesce(p_notes, '')), ''), p_idempotency_key, v_fingerprint
+  ) on conflict (store_id, idempotency_key) where idempotency_key is not null do nothing
+  returning id into v_session_id;
+
+  if v_session_id is null then
+    select id, request_fingerprint into v_session_id, v_existing_fingerprint
+    from public.cash_sessions
+    where store_id = p_store_id and idempotency_key = p_idempotency_key
+    for update;
+    if v_session_id is null then raise exception 'idempotency_conflict_retry'; end if;
+    if v_existing_fingerprint is distinct from v_fingerprint then
+      raise exception 'idempotency_key_reused_with_different_payload';
+    end if;
+  end if;
+  return v_session_id;
+end;
+$$;
+
+create or replace function private.record_cash_movement_internal(
+  p_store_id uuid,
+  p_session_id uuid,
+  p_movement_type text,
+  p_direction text,
+  p_amount numeric,
+  p_description text,
+  p_idempotency_key uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+  v_movement_id uuid;
+  v_fingerprint text;
+  v_existing_fingerprint text;
+begin
+  if v_user_id is null then raise exception 'not_authenticated'; end if;
+  if not public.has_store_role(p_store_id, array['owner'::public.store_role, 'admin'::public.store_role, 'manager'::public.store_role]) then
+    raise exception 'insufficient_store_role';
+  end if;
+  if p_idempotency_key is null then raise exception 'idempotency_key_required'; end if;
+  if p_movement_type not in ('deposit', 'withdrawal', 'adjustment') then raise exception 'invalid_cash_movement_type'; end if;
+  if p_direction not in ('in', 'out') then raise exception 'invalid_cash_direction'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount <> round(p_amount, 2) then raise exception 'invalid_cash_amount'; end if;
+  if nullif(btrim(coalesce(p_description, '')), '') is null or char_length(btrim(p_description)) > 500 then
+    raise exception 'invalid_cash_description';
+  end if;
+  if (p_movement_type = 'deposit' and p_direction <> 'in')
+     or (p_movement_type = 'withdrawal' and p_direction <> 'out') then
+    raise exception 'invalid_cash_movement_direction';
+  end if;
+  perform 1 from public.cash_sessions s
+  where s.id = p_session_id and s.store_id = p_store_id and s.closed_at is null
+  for update;
+  if not found then raise exception 'cash_session_not_open'; end if;
+
+  v_fingerprint := pg_catalog.md5(jsonb_build_object(
+    'session_id', p_session_id, 'movement_type', p_movement_type,
+    'direction', p_direction, 'amount', p_amount, 'description', btrim(p_description)
+  )::text);
+  insert into public.cash_movements (
+    store_id, session_id, movement_type, direction, amount, description,
+    created_by, idempotency_key, request_fingerprint
+  ) values (
+    p_store_id, p_session_id, p_movement_type, p_direction, p_amount, btrim(p_description),
+    v_user_id, p_idempotency_key, v_fingerprint
+  ) on conflict (store_id, idempotency_key) where idempotency_key is not null do nothing
+  returning id into v_movement_id;
+
+  if v_movement_id is null then
+    select id, request_fingerprint into v_movement_id, v_existing_fingerprint
+    from public.cash_movements where store_id = p_store_id and idempotency_key = p_idempotency_key
+    for update;
+    if v_movement_id is null then raise exception 'idempotency_conflict_retry'; end if;
+    if v_existing_fingerprint is distinct from v_fingerprint then raise exception 'idempotency_key_reused_with_different_payload'; end if;
+  end if;
+  return v_movement_id;
+end;
+$$;
+
+create or replace function private.close_cash_session_internal(
+  p_store_id uuid,
+  p_session_id uuid,
+  p_counted_amount numeric,
+  p_notes text default null,
+  p_idempotency_key uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+  v_expected numeric(14,2);
+  v_fingerprint text;
+  v_existing_fingerprint text;
+begin
+  if v_user_id is null then raise exception 'not_authenticated'; end if;
+  if not public.has_store_role(p_store_id, array['owner'::public.store_role, 'admin'::public.store_role, 'manager'::public.store_role]) then raise exception 'insufficient_store_role'; end if;
+  if p_idempotency_key is null then raise exception 'idempotency_key_required'; end if;
+  if p_counted_amount is null or p_counted_amount < 0 or p_counted_amount <> round(p_counted_amount, 2) then raise exception 'invalid_closing_amount'; end if;
+  if nullif(btrim(coalesce(p_notes, '')), '') is not null and char_length(btrim(p_notes)) > 500 then raise exception 'invalid_cash_notes'; end if;
+  v_fingerprint := pg_catalog.md5(jsonb_build_object('counted_amount', p_counted_amount, 'notes', nullif(btrim(coalesce(p_notes, '')), ''))::text);
+
+  perform 1 from public.cash_sessions s where s.id = p_session_id and s.store_id = p_store_id for update;
+  if not found then raise exception 'cash_session_not_found'; end if;
+  select close_request_fingerprint into v_existing_fingerprint from public.cash_sessions where id = p_session_id;
+  if (select closed_at is not null from public.cash_sessions where id = p_session_id) then
+    if (select close_idempotency_key from public.cash_sessions where id = p_session_id) = p_idempotency_key
+       and v_existing_fingerprint = v_fingerprint then return p_session_id; end if;
+    raise exception 'cash_session_already_closed';
+  end if;
+
+  select round(s.opening_amount + coalesce(sum(case when m.direction = 'in' then m.amount else -m.amount end), 0), 2)
+  into v_expected
+  from public.cash_sessions s left join public.cash_movements m on m.session_id = s.id and m.store_id = s.store_id
+  where s.id = p_session_id and s.store_id = p_store_id
+  group by s.opening_amount;
+
+  update public.cash_sessions set
+    closed_by = v_user_id, closing_amount = p_counted_amount, expected_amount = v_expected,
+    difference_amount = round(p_counted_amount - v_expected, 2), closed_at = now(),
+    notes = coalesce(nullif(btrim(coalesce(p_notes, '')), ''), notes),
+    close_idempotency_key = p_idempotency_key, close_request_fingerprint = v_fingerprint
+  where id = p_session_id and store_id = p_store_id;
+  return p_session_id;
+end;
+$$;
+
+create or replace function private.record_cash_expense_internal(
+  p_store_id uuid,
+  p_session_id uuid,
+  p_description text,
+  p_category text,
+  p_amount numeric,
+  p_notes text default null,
+  p_idempotency_key uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := (select auth.uid());
+  v_expense_id uuid;
+  v_fingerprint text;
+  v_existing_fingerprint text;
+begin
+  if v_user_id is null then raise exception 'not_authenticated'; end if;
+  if not public.has_store_role(p_store_id, array['owner'::public.store_role, 'admin'::public.store_role, 'manager'::public.store_role]) then raise exception 'insufficient_store_role'; end if;
+  if p_idempotency_key is null then raise exception 'idempotency_key_required'; end if;
+  if nullif(btrim(coalesce(p_description, '')), '') is null or char_length(btrim(p_description)) > 500 then raise exception 'invalid_expense_description'; end if;
+  if p_category is not null and char_length(btrim(p_category)) > 120 then raise exception 'invalid_expense_category'; end if;
+  if p_notes is not null and char_length(btrim(p_notes)) > 500 then raise exception 'invalid_expense_notes'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount <> round(p_amount, 2) then raise exception 'invalid_expense_amount'; end if;
+  perform 1 from public.cash_sessions s where s.id = p_session_id and s.store_id = p_store_id and s.closed_at is null for update;
+  if not found then raise exception 'cash_session_not_open'; end if;
+
+  v_fingerprint := pg_catalog.md5(jsonb_build_object(
+    'session_id', p_session_id, 'description', btrim(p_description), 'category', nullif(btrim(coalesce(p_category, '')), ''),
+    'amount', p_amount, 'notes', nullif(btrim(coalesce(p_notes, '')), '')
+  )::text);
+  insert into public.expenses (
+    store_id, description, category, amount, currency_code, incurred_at, payment_method, notes,
+    created_by, idempotency_key, request_fingerprint
+  ) values (
+    p_store_id, btrim(p_description), nullif(btrim(coalesce(p_category, '')), ''), p_amount, 'AOA', now(),
+    'cash'::public.payment_method, nullif(btrim(coalesce(p_notes, '')), ''), v_user_id, p_idempotency_key, v_fingerprint
+  ) on conflict (store_id, idempotency_key) where idempotency_key is not null do nothing
+  returning id into v_expense_id;
+
+  if v_expense_id is null then
+    select id, request_fingerprint into v_expense_id, v_existing_fingerprint
+    from public.expenses where store_id = p_store_id and idempotency_key = p_idempotency_key for update;
+    if v_expense_id is null then raise exception 'idempotency_conflict_retry'; end if;
+    if v_existing_fingerprint is distinct from v_fingerprint then raise exception 'idempotency_key_reused_with_different_payload'; end if;
+    return v_expense_id;
+  end if;
+
+  insert into public.cash_movements (
+    store_id, session_id, movement_type, direction, amount, description, reference_type, reference_id, created_by,
+    idempotency_key, request_fingerprint
+  ) values (
+    p_store_id, p_session_id, 'expense', 'out', p_amount, btrim(p_description), 'expense', v_expense_id, v_user_id,
+    p_idempotency_key, v_fingerprint
+  );
+  return v_expense_id;
+end;
+$$;
+
+create or replace function public.open_cash_session(p_store_id uuid, p_register_id uuid, p_opening_amount numeric, p_notes text default null, p_idempotency_key uuid default null)
+returns uuid language sql security invoker set search_path = '' as $$
+  select private.open_cash_session_internal(p_store_id, p_register_id, p_opening_amount, p_notes, p_idempotency_key);
+$$;
+create or replace function public.record_cash_movement(p_store_id uuid, p_session_id uuid, p_movement_type text, p_direction text, p_amount numeric, p_description text, p_idempotency_key uuid default null)
+returns uuid language sql security invoker set search_path = '' as $$
+  select private.record_cash_movement_internal(p_store_id, p_session_id, p_movement_type, p_direction, p_amount, p_description, p_idempotency_key);
+$$;
+create or replace function public.close_cash_session(p_store_id uuid, p_session_id uuid, p_counted_amount numeric, p_notes text default null, p_idempotency_key uuid default null)
+returns uuid language sql security invoker set search_path = '' as $$
+  select private.close_cash_session_internal(p_store_id, p_session_id, p_counted_amount, p_notes, p_idempotency_key);
+$$;
+create or replace function public.record_cash_expense(p_store_id uuid, p_session_id uuid, p_description text, p_category text, p_amount numeric, p_notes text default null, p_idempotency_key uuid default null)
+returns uuid language sql security invoker set search_path = '' as $$
+  select private.record_cash_expense_internal(p_store_id, p_session_id, p_description, p_category, p_amount, p_notes, p_idempotency_key);
+$$;
+
+revoke all on function private.open_cash_session_internal(uuid,uuid,numeric,text,uuid) from public, anon;
+revoke all on function private.record_cash_movement_internal(uuid,uuid,text,text,numeric,text,uuid) from public, anon;
+revoke all on function private.close_cash_session_internal(uuid,uuid,numeric,text,uuid) from public, anon;
+revoke all on function private.record_cash_expense_internal(uuid,uuid,text,text,numeric,text,uuid) from public, anon;
+grant execute on function private.open_cash_session_internal(uuid,uuid,numeric,text,uuid) to authenticated;
+grant execute on function private.record_cash_movement_internal(uuid,uuid,text,text,numeric,text,uuid) to authenticated;
+grant execute on function private.close_cash_session_internal(uuid,uuid,numeric,text,uuid) to authenticated;
+grant execute on function private.record_cash_expense_internal(uuid,uuid,text,text,numeric,text,uuid) to authenticated;
+revoke all on function public.open_cash_session(uuid,uuid,numeric,text,uuid) from public, anon;
+revoke all on function public.record_cash_movement(uuid,uuid,text,text,numeric,text,uuid) from public, anon;
+revoke all on function public.close_cash_session(uuid,uuid,numeric,text,uuid) from public, anon;
+revoke all on function public.record_cash_expense(uuid,uuid,text,text,numeric,text,uuid) from public, anon;
+grant execute on function public.open_cash_session(uuid,uuid,numeric,text,uuid) to authenticated;
+grant execute on function public.record_cash_movement(uuid,uuid,text,text,numeric,text,uuid) to authenticated;
+grant execute on function public.close_cash_session(uuid,uuid,numeric,text,uuid) to authenticated;
+grant execute on function public.record_cash_expense(uuid,uuid,text,text,numeric,text,uuid) to authenticated;
+
+-- ============================================================================
+-- PARTE 5: 20261120120000 + 20261121080000_atomic_domain_audit.sql (RPCs comerciais com auditoria)
 -- ============================================================================
 
 create or replace function public.write_audit_log(
@@ -47,6 +895,9 @@ begin
   return v_id;
 end;
 $$;
+
+revoke all on function public.write_audit_log(uuid,text,text,uuid,text,jsonb) from public, anon;
+grant execute on function public.write_audit_log(uuid,text,text,uuid,text,jsonb) to authenticated;
 
 create or replace function public.write_operation_audit_log(
   p_store_id uuid,
@@ -425,7 +1276,7 @@ grant execute on function public.create_supplier_with_audit(uuid,text,text,text,
 grant execute on function public.record_stock_entry_with_audit(uuid,uuid,uuid,public.stock_movement_type,numeric,numeric,text,text) to authenticated;
 
 -- ============================================================================
--- PARTE 2: 20261121100000_whatsapp_durable_processing.sql (WhatsApp durável)
+-- PARTE 6: 20261121100000_whatsapp_durable_processing.sql (WhatsApp durável)
 -- ============================================================================
 
 alter table public.whatsapp_conversations add column if not exists connection_id uuid;
@@ -986,7 +1837,7 @@ grant execute on function public.reap_expired_whatsapp_jobs(uuid) to service_rol
 grant execute on function public.mark_expired_whatsapp_outbox_unknown(uuid) to service_role;
 
 -- ============================================================================
--- PARTE 3: 20261122090000 + 20261123080000 (Confirmações seguras + índices)
+-- PARTE 7: 20261122090000 + 20261123080000 (Confirmações seguras + índices)
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.assistant_confirmations (
